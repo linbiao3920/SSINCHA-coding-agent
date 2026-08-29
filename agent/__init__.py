@@ -1,0 +1,2 @@
+"""SSINCHA coding agent package."""
+
