@@ -3,18 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 from typing import Any, Protocol
 
 from .action import Action
+from .feedback import FeedbackTracker
 from .llm import LLMClient, LLMError, parse_action_response
 from .state import AgentState
 
 
 MAX_STEPS = 30
-REPEATED_ERROR_LIMIT = 3
-
-
 @dataclass(frozen=True)
 class ToolResult:
     observation: str
@@ -38,8 +35,7 @@ class AgentLoop:
 
     def run(self, state: AgentState) -> AgentState:
         state.add_message("user", state.task)
-        repeated_errors = 0
-        last_error: str | None = None
+        feedback = FeedbackTracker()
         last_action: Action | None = None
 
         while state.step_count < self._max_steps:
@@ -75,17 +71,11 @@ class AgentLoop:
 
             if not success:
                 state.record_error(observation)
-                if observation == last_error:
-                    repeated_errors += 1
-                else:
-                    repeated_errors = 1
-                    last_error = observation
-                if repeated_errors >= REPEATED_ERROR_LIMIT:
+                if feedback.observe(success=False, observation=observation):
                     state.add_message("tool", "stopped: repeated identical errors")
                     break
             else:
-                repeated_errors = 0
-                last_error = None
+                feedback.observe(success=True, observation=observation)
 
         return state
 
