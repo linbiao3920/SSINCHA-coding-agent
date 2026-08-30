@@ -6,6 +6,7 @@ import argparse
 import sys
 
 from .llm import LLMError, RealLLMClient
+from .guardrail import Guardrail
 from .loop import AgentLoop
 from .state import AgentState
 from .tools import Toolbox
@@ -28,7 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
 def run_task(task: str, workspace: str = ".") -> AgentState:
     llm = RealLLMClient.from_environment()
     tools = Toolbox(workspace)
-    return AgentLoop(llm=llm, tools=tools).run(AgentState(task=task))
+    guardrail = Guardrail(workspace)
+    return AgentLoop(llm=llm, tools=tools, guardrail=guardrail).run(AgentState(task=task))
 
 
 def main(argv: list[str] | None = None) -> int:

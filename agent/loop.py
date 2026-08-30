@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .action import Action
+from .guardrail import Guardrail
 from .feedback import FeedbackTracker
 from .llm import LLMClient, LLMError, parse_action_response
 from .state import AgentState
@@ -26,11 +27,18 @@ class ToolExecutor(Protocol):
 class AgentLoop:
     """Run the model/tool feedback loop with deterministic stopping rules."""
 
-    def __init__(self, llm: LLMClient, tools: ToolExecutor, max_steps: int = MAX_STEPS):
+    def __init__(
+        self,
+        llm: LLMClient,
+        tools: ToolExecutor,
+        guardrail: Guardrail | None = None,
+        max_steps: int = MAX_STEPS,
+    ):
         if max_steps <= 0 or max_steps > MAX_STEPS:
             raise ValueError(f"max_steps must be between 1 and {MAX_STEPS}")
         self._llm = llm
         self._tools = tools
+        self._guardrail = guardrail
         self._max_steps = max_steps
 
     def run(self, state: AgentState) -> AgentState:
@@ -51,6 +59,15 @@ class AgentLoop:
             if action.type == "Stop":
                 state.add_step(action, observation=action.params["reason"], success=True)
                 break
+
+            if self._guardrail is not None:
+                decision = self._guardrail.inspect(action)
+                if not decision.allowed:
+                    observation = f"guardrail blocked: {decision.reason}"
+                    state.add_step(action, observation=observation, success=False)
+                    state.add_message("tool", observation)
+                    state.record_error(observation, source="guardrail")
+                    continue
 
             if last_action is not None and action == last_action:
                 observation = "action blocked: repeated action"

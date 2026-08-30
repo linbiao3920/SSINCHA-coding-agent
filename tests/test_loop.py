@@ -1,7 +1,8 @@
 from agent.action import Action
-from agent.llm import parse_action_response
+from agent.guardrail import Guardrail
 from agent.loop import AgentLoop, ToolResult
 from agent.state import AgentState
+from pathlib import Path
 
 
 class ScriptedLLM:
@@ -52,3 +53,15 @@ def test_loop_stops_after_three_identical_failures():
     state = AgentLoop(ScriptedLLM(actions), tools).run(AgentState("run tests"))
     assert len(state.trajectory) == 3
     assert state.error_logs[-1].message == "test failed"
+
+
+def test_loop_uses_guardrail_before_tool_execution(tmp_path: Path):
+    tools = RecordingTools()
+    guardrail = Guardrail(tmp_path)
+    state = AgentLoop(
+        ScriptedLLM([Action("Read_File", {"path": "../secret.txt"}), Action("Stop", {"reason": "done"})]),
+        tools,
+        guardrail=guardrail,
+    ).run(AgentState("inspect the project"))
+    assert len(tools.calls) == 0
+    assert state.error_logs[-1].source == "guardrail"
