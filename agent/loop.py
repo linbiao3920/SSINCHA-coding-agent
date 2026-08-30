@@ -28,6 +28,7 @@ Rules:
 - Read files before changing them.
 - Prefer running tests after changes.
 - If tests fail, use the tool output to choose a different next action.
+- If a new user message follows an earlier Stop action, treat it as a continuation of that session.
 - Stop only when the requested task is complete or safely blocked.
 """
 @dataclass(frozen=True)

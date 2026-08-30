@@ -8,6 +8,7 @@ import sys
 from .llm import LLMError, RealLLMClient
 from .guardrail import Guardrail
 from .loop import AgentLoop
+from .session import SessionStore
 from .state import AgentState
 from .tools import Toolbox
 
@@ -23,24 +24,64 @@ def build_parser() -> argparse.ArgumentParser:
         default=".",
         help="workspace directory (defaults to the current directory)",
     )
+    parser.add_argument(
+        "--session",
+        help="local session name to create or continue",
+    )
+    parser.add_argument(
+        "--reset-session",
+        action="store_true",
+        help="discard saved history before running (requires --session)",
+    )
     return parser
 
 
-def run_task(task: str, workspace: str = ".") -> AgentState:
-    llm = RealLLMClient.from_environment()
+def run_task(
+    task: str,
+    workspace: str = ".",
+    *,
+    session: str | None = None,
+    reset_session: bool = False,
+    session_store: SessionStore | None = None,
+) -> AgentState:
+    if reset_session and session is None:
+        raise ValueError("--reset-session requires --session")
+
     tools = Toolbox(workspace)
+    store = session_store or SessionStore()
+    state = AgentState(task=task)
+    if session is not None:
+        if not reset_session:
+            state.history.extend(store.load(session, tools.workspace))
+        if state.history:
+            state.add_message("user", task)
+
+    llm = RealLLMClient.from_environment()
     guardrail = Guardrail(workspace)
-    return AgentLoop(llm=llm, tools=tools, guardrail=guardrail).run(AgentState(task=task))
+    state = AgentLoop(llm=llm, tools=tools, guardrail=guardrail).run(state)
+    if session is not None:
+        store.save(session, tools.workspace, state.history)
+    return state
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.reset_session and args.session is None:
+        parser.error("--reset-session requires --session")
     try:
-        state = run_task(args.task, args.workspace)
+        state = run_task(
+            args.task,
+            args.workspace,
+            session=args.session,
+            reset_session=args.reset_session,
+        )
     except (LLMError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
+    if args.session is not None:
+        print(f"Session: {args.session}")
     print(f"Task: {state.task}")
     print(f"Steps: {state.step_count}")
     for index, step in enumerate(state.trajectory, start=1):
