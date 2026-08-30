@@ -23,6 +23,27 @@ class LLMClient(Protocol):
         """Return the model's next action response as text."""
 
 
+def _build_responses_request(
+    messages: Sequence[Message],
+) -> tuple[str | None, list[dict[str, object]]]:
+    """Split instructions from message history for the Responses API."""
+
+    instructions: list[str] = []
+    input_messages: list[dict[str, object]] = []
+    for message in messages:
+        if message.role in {"system", "developer"}:
+            instructions.append(message.content)
+            continue
+        role = message.role
+        content = message.content
+        if message.role == "tool":
+            role = "user"
+            content = f"[tool]\n{message.content}"
+        input_messages.append({"type": "message", "role": role, "content": content})
+    instructions_text = "\n\n".join(instructions).strip() or None
+    return instructions_text, input_messages
+
+
 def parse_action_response(raw: str) -> Action:
     """Parse exactly one JSON action from a model response.
 
@@ -52,11 +73,11 @@ def parse_action_response(raw: str) -> Action:
 
 @dataclass
 class RealLLMClient:
-    """OpenAI-compatible client with environment-only credential loading."""
+    """DeepSeek client with environment-only credential loading."""
 
     api_key: str
-    model: str = "gpt-4o-mini"
-    base_url: str | None = None
+    model: str = "deepseek-v4-pro"
+    base_url: str = "https://api.deepseek.com"
     timeout: float = 60.0
 
     def __post_init__(self) -> None:
@@ -64,22 +85,19 @@ class RealLLMClient:
             raise ValueError("api_key must be a non-empty string")
         if type(self.model) is not str or not self.model.strip():
             raise ValueError("model must be a non-empty string")
-        if self.base_url is not None and (
-            type(self.base_url) is not str or not self.base_url.strip()
-        ):
+        if type(self.base_url) is not str or not self.base_url.strip():
             raise ValueError("base_url must be a non-empty string")
         if type(self.timeout) not in (int, float) or self.timeout <= 0:
             raise ValueError("timeout must be positive")
 
     @classmethod
     def from_environment(cls) -> "RealLLMClient":
-        api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
+        api_key = os.getenv("DEEPSEEK_API_KEY")
         if not api_key:
-            raise LLMError("set OPENAI_API_KEY or LLM_API_KEY before running")
+            raise LLMError("set DEEPSEEK_API_KEY before running")
         return cls(
             api_key=api_key,
-            model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
-            base_url=os.getenv("OPENAI_BASE_URL") or os.getenv("LLM_BASE_URL"),
+            model=os.getenv("DEEPSEEK_MODEL") or "deepseek-v4-pro",
         )
 
     def complete(self, messages: Sequence[Message]) -> str:
@@ -93,14 +111,17 @@ class RealLLMClient:
                 base_url=self.base_url,
                 timeout=self.timeout,
             )
-            response = client.chat.completions.create(
+            instructions, input_messages = _build_responses_request(messages)
+            response = client.responses.create(
                 model=self.model,
-                messages=[{"role": message.role, "content": message.content} for message in messages],
+                instructions=instructions,
+                input=input_messages,
                 temperature=0,
+                max_output_tokens=1024,
             )
-            content = response.choices[0].message.content
+            content = response.output_text
         except Exception as exc:
-            raise LLMError("LLM request failed") from exc
+            raise LLMError(f"LLM request failed: {type(exc).__name__}: {exc}") from exc
         if type(content) is not str or not content.strip():
             raise LLMError("LLM returned an empty response")
         if len(content) > MAX_RESPONSE_CHARS:
