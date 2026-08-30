@@ -23,6 +23,16 @@ class RecordingTools:
         return self.result
 
 
+class SequenceTools:
+    def __init__(self, results):
+        self.calls = []
+        self.results = iter(results)
+
+    def execute(self, action):
+        self.calls.append(action)
+        return next(self.results)
+
+
 def test_loop_executes_action_then_stops():
     tools = RecordingTools()
     state = AgentLoop(
@@ -84,3 +94,39 @@ def test_loop_never_exceeds_thirty_steps():
 
     assert state.step_count == 30
     assert len(state.trajectory) == 30
+
+
+def test_stop_is_blocked_until_test_passes_after_write():
+    write = Action("Write_File", {"path": "main.py", "content": "x"})
+    test = Action("Execute_Test", {"cmd": "pytest"})
+    stop = Action("Stop", {"reason": "done"})
+    tools = SequenceTools([ToolResult("written", True), ToolResult("passed", True)])
+
+    state = AgentLoop(ScriptedLLM([write, stop, test, stop]), tools).run(AgentState("edit"))
+
+    assert [step.action.type for step in state.trajectory] == [
+        "Write_File", "Stop", "Execute_Test", "Stop"
+    ]
+    assert state.trajectory[1].success is False
+    assert state.trajectory[-1].success is True
+    assert state.error_logs[-1].source == "completion"
+
+
+def test_failed_test_also_blocks_stop_until_a_later_test_passes():
+    write = Action("Write_File", {"path": "main.py", "content": "x"})
+    test = Action("Execute_Test", {"cmd": "pytest"})
+    stop = Action("Stop", {"reason": "done"})
+    tools = SequenceTools([
+        ToolResult("written", True),
+        ToolResult("failed", False),
+        ToolResult("passed", True),
+    ])
+
+    state = AgentLoop(
+        ScriptedLLM([write, test, stop, test, stop]),
+        tools,
+    ).run(AgentState("edit"))
+
+    assert state.trajectory[2].success is False
+    assert state.trajectory[-1].success is True
+    assert len(tools.calls) == 3

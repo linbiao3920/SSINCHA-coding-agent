@@ -71,3 +71,32 @@ def test_run_task_continues_and_resets_a_persisted_session(
 def test_run_task_rejects_reset_without_session():
     with pytest.raises(ValueError, match="requires --session"):
         cli.run_task("task", reset_session=True)
+
+
+class ScriptedActionsLLM:
+    def __init__(self, actions):
+        self.actions = iter(actions)
+
+    def complete(self, _messages):
+        return next(self.actions).to_json()
+
+
+def test_session_restores_a_verified_completion_gate(tmp_path: Path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    store = SessionStore(tmp_path / "sessions")
+    write = Action("Write_File", {"path": "main.py", "content": "value = 1\n"})
+    test = Action("Execute_Test", {"cmd": "pytest --version"})
+    stop = Action("Stop", {"reason": "verified"})
+
+    first_llm = ScriptedActionsLLM([write, test, stop])
+    monkeypatch.setattr(cli.RealLLMClient, "from_environment", lambda: first_llm)
+    first = cli.run_task("write and verify", workspace, session="demo", session_store=store)
+    assert first.trajectory[-1].success is True
+
+    second_llm = ScriptedActionsLLM([stop])
+    monkeypatch.setattr(cli.RealLLMClient, "from_environment", lambda: second_llm)
+    second = cli.run_task("finish", workspace, session="demo", session_store=store)
+
+    assert second.trajectory[0].action.type == "Stop"
+    assert second.trajectory[0].success is True

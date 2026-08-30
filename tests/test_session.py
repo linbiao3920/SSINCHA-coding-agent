@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 
+from agent.action import Action
+from agent.completion import CompletionGate
 from agent.session import SessionError, SessionStore
 from agent.state import Message
 
@@ -16,11 +18,18 @@ def test_session_store_round_trips_history(tmp_path: Path):
         Message("user", "create a file"),
         Message("assistant", '{"type":"Stop","params":{"reason":"done"}}'),
     ]
+    gate = CompletionGate()
+    gate.observe(
+        Action("Write_File", {"path": "main.py", "content": "x"}),
+        success=True,
+    )
 
-    path = store.save("demo-1", workspace, history)
+    path = store.save("demo-1", workspace, history, completion=gate.snapshot())
 
     assert path.is_file()
     assert store.load("demo-1", workspace) == history
+    data = store.load_data("demo-1", workspace)
+    assert data.completion == gate.snapshot()
 
 
 def test_session_store_rejects_different_workspace(tmp_path: Path):

@@ -6,6 +6,7 @@ import argparse
 import sys
 
 from .llm import LLMError, RealLLMClient
+from .completion import CompletionGate
 from .guardrail import Guardrail
 from .loop import AgentLoop
 from .session import SessionStore
@@ -50,17 +51,25 @@ def run_task(
     tools = Toolbox(workspace)
     store = session_store or SessionStore()
     state = AgentState(task=task)
+    completion = CompletionGate()
     if session is not None:
         if not reset_session:
-            state.history.extend(store.load(session, tools.workspace))
+            session_data = store.load_data(session, tools.workspace)
+            state.history.extend(session_data.history)
+            completion = CompletionGate.from_snapshot(session_data.completion)
         if state.history:
             state.add_message("user", task)
 
     llm = RealLLMClient.from_environment()
     guardrail = Guardrail(workspace)
-    state = AgentLoop(llm=llm, tools=tools, guardrail=guardrail).run(state)
+    state = AgentLoop(
+        llm=llm,
+        tools=tools,
+        guardrail=guardrail,
+        completion_gate=completion,
+    ).run(state)
     if session is not None:
-        store.save(session, tools.workspace, state.history)
+        store.save(session, tools.workspace, state.history, completion=completion.snapshot())
     return state
 
 

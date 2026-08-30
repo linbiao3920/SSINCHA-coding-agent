@@ -19,3 +19,7 @@ SSINCHA Coding Agent
 3. 重置：`python -m agent --session demo --reset-session --workspace examples\\mytest "Start a new task."`
 
 会话保存在本地 `.agent_sessions/`，绑定首次使用的 workspace，不保存 API Key，也不会加入 Git。
+
+验证驱动停止：
+
+成功写入文件后，agent 必须成功执行一次 `Execute_Test` 才能返回 `Stop`。如果没有测试、测试失败，或测试通过后又发生新的写入，Stop 会被系统拦截并把原因反馈给模型。只读任务不需要额外测试。该验证状态也会随持久化 session 保存。
