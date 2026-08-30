@@ -65,3 +65,22 @@ def test_loop_uses_guardrail_before_tool_execution(tmp_path: Path):
     ).run(AgentState("inspect the project"))
     assert len(tools.calls) == 0
     assert state.error_logs[-1].source == "guardrail"
+
+
+def test_loop_never_exceeds_thirty_steps():
+    class CyclingLLM:
+        def __init__(self):
+            self.index = 0
+
+        def complete(self, _messages):
+            action = Action(
+                "Read_File" if self.index % 2 == 0 else "Execute_Test",
+                {"path": "main.py"} if self.index % 2 == 0 else {"cmd": "pytest --version"},
+            )
+            self.index += 1
+            return action.to_json()
+
+    state = AgentLoop(CyclingLLM(), RecordingTools()).run(AgentState("keep working"))
+
+    assert state.step_count == 30
+    assert len(state.trajectory) == 30

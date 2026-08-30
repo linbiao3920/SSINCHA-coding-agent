@@ -11,7 +11,8 @@ from .action import Action, ActionValidationError
 from .state import Message
 
 
-MAX_RESPONSE_CHARS = 32_768
+MAX_RESPONSE_CHARS = 327_680
+MAX_OUTPUT_TOKENS = 40_960
 
 
 class LLMError(RuntimeError):
@@ -117,12 +118,17 @@ class RealLLMClient:
                 instructions=instructions,
                 input=input_messages,
                 temperature=0,
-                max_output_tokens=1024,
+                max_output_tokens=MAX_OUTPUT_TOKENS,
+                text={"format": {"type": "json_object"}},
             )
             content = response.output_text
         except Exception as exc:
             raise LLMError(f"LLM request failed: {type(exc).__name__}: {exc}") from exc
         if type(content) is not str or not content.strip():
+            incomplete = getattr(response, "incomplete_details", None)
+            reason = getattr(incomplete, "reason", None)
+            if reason:
+                raise LLMError(f"LLM response incomplete: {reason}")
             raise LLMError("LLM returned an empty response")
         if len(content) > MAX_RESPONSE_CHARS:
             raise LLMError("LLM response exceeds the size limit")
