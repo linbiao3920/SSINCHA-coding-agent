@@ -13,6 +13,23 @@ from .state import AgentState
 
 
 MAX_STEPS = 30
+
+
+SYSTEM_PROMPT = """You are SSINCHA, a coding agent that can work only through JSON actions.
+
+Return exactly one JSON object and no prose. Valid actions:
+- {"type":"Read_File","params":{"path":"relative/path.py"}}
+- {"type":"Write_File","params":{"path":"relative/path.py","content":"full file content"}}
+- {"type":"Execute_Test","params":{"cmd":"pytest"}}
+- {"type":"Stop","params":{"reason":"short reason"}}
+
+Rules:
+- Use workspace-relative paths only.
+- Read files before changing them.
+- Prefer running tests after changes.
+- If tests fail, use the tool output to choose a different next action.
+- Stop only when the requested task is complete or safely blocked.
+"""
 @dataclass(frozen=True)
 class ToolResult:
     observation: str
@@ -42,7 +59,9 @@ class AgentLoop:
         self._max_steps = max_steps
 
     def run(self, state: AgentState) -> AgentState:
-        state.add_message("user", state.task)
+        if not state.history:
+            state.add_message("system", SYSTEM_PROMPT)
+            state.add_message("user", state.task)
         feedback = FeedbackTracker()
         last_action: Action | None = None
 

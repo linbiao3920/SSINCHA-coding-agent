@@ -1,0 +1,2 @@
+Fix the failing calculator tests. Read the files first, update only the source code, run pytest, and stop when the tests pass.
+
