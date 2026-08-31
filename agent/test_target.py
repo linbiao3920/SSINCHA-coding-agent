@@ -1,0 +1,153 @@
+"""Deterministic binding between modified files and focused test targets."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+import shlex
+
+
+@dataclass(frozen=True)
+class TargetDecision:
+    allowed: bool
+    reason: str = ""
+
+
+class TestTargetBinder:
+    """Require test commands to name tests relevant to modified files."""
+
+    __test__ = False
+
+    def __init__(self, workspace: str | Path):
+        self.workspace = Path(workspace).resolve()
+        if not self.workspace.is_dir():
+            raise ValueError("workspace must be an existing directory")
+        self._modified: set[str] = set()
+
+    @property
+    def modified_paths(self) -> frozenset[str]:
+        return frozenset(self._modified)
+
+    def observe_write(self, path: str) -> None:
+        target = self._relative(path)
+        self._modified.add(target)
+
+    def observe_test(self, *, success: bool) -> None:
+        if type(success) is not bool:
+            raise ValueError("test result must be boolean")
+        if success:
+            self._modified.clear()
+
+    def inspect(self, command: str) -> TargetDecision:
+        if type(command) is not str or not command.strip():
+            raise ValueError("test command must be a non-empty string")
+        if not self._modified:
+            return TargetDecision(True)
+
+        try:
+            parts = shlex.split(command)
+        except ValueError:
+            return TargetDecision(False, "test target command quoting is invalid")
+        targets = set()
+        for part in parts[1:]:
+            if part.startswith("-") or not self._looks_like_path(part):
+                continue
+            # Pytest node IDs append ::test_name to a file path.
+            path_part = part.split("::", 1)[0]
+            targets.add(self._relative(path_part))
+
+        missing: list[str] = []
+        for modified in sorted(self._modified):
+            expected = self._expected_tests(modified)
+            if not expected:
+                expected = {self._display_candidate(modified)}
+            if not any(
+                self._target_matches(target, candidate)
+                for target in targets
+                for candidate in expected
+            ):
+                missing.append(f"{modified} -> {', '.join(sorted(expected))}")
+        if missing:
+            return TargetDecision(
+                False,
+                "test target mismatch: explicitly run the focused tests for "
+                + "; ".join(missing),
+            )
+        return TargetDecision(True)
+
+    def _expected_tests(self, modified: str) -> set[str]:
+        path = PurePosixPath(modified)
+        if path.name.startswith("test_") or path.name.endswith("_test.py"):
+            return {modified}
+        if path.suffix != ".py":
+            return set()
+
+        stem = path.stem
+        candidates = {
+            path.parent / f"test_{stem}.py",
+            path.parent / f"{stem}_test.py",
+            PurePosixPath("tests") / f"test_{stem}.py",
+            PurePosixPath("tests") / f"{stem}_test.py",
+        }
+        existing = {
+            self._relative(str(candidate))
+            for candidate in candidates
+            if (self.workspace / Path(str(candidate))).is_file()
+        }
+        if existing:
+            return existing
+
+        # Also recognize tests that import a source file under a different name.
+        for test_path in self._test_files():
+            try:
+                content = test_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                continue
+            if self._references_source(content, path):
+                existing.add(self._relative(str(test_path)))
+        return existing
+
+    def _test_files(self) -> list[Path]:
+        return [
+            path
+            for path in self.workspace.rglob("*.py")
+            if path.name.startswith("test_") or path.name.endswith("_test.py")
+        ]
+
+    @staticmethod
+    def _references_source(content: str, source: PurePosixPath) -> bool:
+        stem = source.stem
+        return (
+            f"import {stem}" in content
+            or f"from {stem} import" in content
+            or f"{source.name}" in content
+        )
+
+    @staticmethod
+    def _looks_like_path(value: str) -> bool:
+        lowered = value.lower()
+        return (
+            lowered.endswith((".py", ".js", ".ts", ".tsx"))
+            or "/" in value
+            or "\\" in value
+            or value.startswith("test")
+        )
+
+    def _relative(self, path: str) -> str:
+        candidate = (self.workspace / Path(path)).resolve()
+        try:
+            relative = candidate.relative_to(self.workspace)
+        except ValueError as exc:
+            raise ValueError("test target escapes workspace") from exc
+        return PurePosixPath(relative.as_posix()).as_posix()
+
+    @staticmethod
+    def _display_candidate(modified: str) -> str:
+        path = PurePosixPath(modified)
+        return f"tests/test_{path.stem}.py"
+
+    @staticmethod
+    def _target_matches(target: str, expected: str) -> bool:
+        if target == ".":
+            return True
+        return target == expected or expected.startswith(target.rstrip("/") + "/")

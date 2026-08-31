@@ -11,6 +11,7 @@ from .guardrail import Guardrail
 from .feedback import FeedbackTracker, extract_test_error, format_structured_feedback
 from .llm import LLMClient, LLMError, parse_action_response
 from .state import AgentState
+from .test_target import TestTargetBinder
 
 
 MAX_STEPS = 30
@@ -55,6 +56,7 @@ class AgentLoop:
         guardrail: Guardrail | None = None,
         max_steps: int = MAX_STEPS,
         completion_gate: CompletionGate | None = None,
+        test_target_binder: TestTargetBinder | None = None,
     ):
         if max_steps <= 0 or max_steps > MAX_STEPS:
             raise ValueError(f"max_steps must be between 1 and {MAX_STEPS}")
@@ -63,6 +65,7 @@ class AgentLoop:
         self._guardrail = guardrail
         self._max_steps = max_steps
         self._completion_gate = completion_gate
+        self._test_target_binder = test_target_binder
 
     def run(self, state: AgentState) -> AgentState:
         if not state.history:
@@ -109,6 +112,16 @@ class AgentLoop:
                 last_action = action
                 continue
 
+            if action.type == "Execute_Test" and self._test_target_binder is not None:
+                target_decision = self._test_target_binder.inspect(action.params["cmd"])
+                if not target_decision.allowed:
+                    observation = f"test binding blocked: {target_decision.reason}"
+                    state.add_step(action, observation=observation, success=False)
+                    state.add_message("tool", observation)
+                    state.record_error(observation, source="test_binding")
+                    last_action = action
+                    continue
+
             try:
                 result = self._tools.execute(action)
                 observation, success = self._normalize_result(result)
@@ -119,6 +132,11 @@ class AgentLoop:
             state.add_message("tool", observation)
             last_action = action
             completion.observe(action, success=success)
+            if self._test_target_binder is not None:
+                if action.type == "Write_File" and success:
+                    self._test_target_binder.observe_write(action.params["path"])
+                elif action.type == "Execute_Test":
+                    self._test_target_binder.observe_test(success=success)
 
             if not success:
                 structured_error = None

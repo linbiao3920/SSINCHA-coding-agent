@@ -84,9 +84,12 @@ class ScriptedActionsLLM:
 def test_session_restores_a_verified_completion_gate(tmp_path: Path, monkeypatch):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
+    (workspace / "test_main.py").write_text(
+        "def test_main(): assert True\n", encoding="utf-8"
+    )
     store = SessionStore(tmp_path / "sessions")
     write = Action("Write_File", {"path": "main.py", "content": "value = 1\n"})
-    test = Action("Execute_Test", {"cmd": "pytest --version"})
+    test = Action("Execute_Test", {"cmd": "pytest test_main.py"})
     stop = Action("Stop", {"reason": "verified"})
 
     first_llm = ScriptedActionsLLM([write, test, stop])

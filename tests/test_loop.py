@@ -2,6 +2,7 @@ from agent.action import Action
 from agent.guardrail import Guardrail
 from agent.loop import AgentLoop, ToolResult
 from agent.state import AgentState
+from agent.test_target import TestTargetBinder
 from pathlib import Path
 
 
@@ -166,3 +167,29 @@ def test_structured_failure_feedback_changes_next_mock_action():
     assert any("category: assertion" in message.content for message in llm.calls[1])
     assert state.error_logs[0].category == "assertion"
     assert state.error_logs[0].location == "tests/test_main.py:4"
+
+
+def test_test_target_binding_blocks_unrelated_test_before_execution(tmp_path: Path):
+    (tmp_path / "greet.py").write_text("print('hello')\n", encoding="utf-8")
+    (tmp_path / "test_blackjack.py").write_text(
+        "def test_game(): assert True\n", encoding="utf-8"
+    )
+    (tmp_path / "test_greet.py").write_text(
+        "def test_greet(): assert True\n", encoding="utf-8"
+    )
+    write = Action("Write_File", {"path": "greet.py", "content": "print('date')\n"})
+    unrelated = Action("Execute_Test", {"cmd": "pytest test_blackjack.py"})
+    focused = Action("Execute_Test", {"cmd": "pytest test_greet.py"})
+    stop = Action("Stop", {"reason": "done"})
+    tools = RecordingTools()
+    llm = ScriptedLLM([write, unrelated, focused, stop])
+
+    state = AgentLoop(
+        llm,
+        tools,
+        test_target_binder=TestTargetBinder(tmp_path),
+    ).run(AgentState("update greet"))
+
+    assert len(tools.calls) == 2
+    assert state.trajectory[1].success is False
+    assert state.error_logs[-1].source == "test_binding"

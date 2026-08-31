@@ -12,6 +12,7 @@ from .loop import AgentLoop
 from .session import SessionStore
 from .state import AgentState
 from .tools import Toolbox
+from .test_target import TestTargetBinder
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,6 +68,7 @@ def run_task(
         tools=tools,
         guardrail=guardrail,
         completion_gate=completion,
+        test_target_binder=TestTargetBinder(tools.workspace),
     ).run(state)
     if session is not None:
         store.save(session, tools.workspace, state.history, completion=completion.snapshot())
