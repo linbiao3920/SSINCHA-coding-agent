@@ -33,6 +33,21 @@ class SequenceTools:
         return next(self.results)
 
 
+class FeedbackAwareLLM:
+    def __init__(self):
+        self.calls = []
+
+    def complete(self, messages):
+        self.calls.append(list(messages))
+        if len(self.calls) == 2 and any(
+            "[structured-feedback]" in message.content for message in messages
+        ):
+            return Action("Read_File", {"path": "main.py"}).to_json()
+        if len(self.calls) > 2:
+            return Action("Stop", {"reason": "verified"}).to_json()
+        return Action("Execute_Test", {"cmd": "pytest test_main.py"}).to_json()
+
+
 def test_loop_executes_action_then_stops():
     tools = RecordingTools()
     state = AgentLoop(
@@ -130,3 +145,24 @@ def test_failed_test_also_blocks_stop_until_a_later_test_passes():
     assert state.trajectory[2].success is False
     assert state.trajectory[-1].success is True
     assert len(tools.calls) == 3
+
+
+def test_structured_failure_feedback_changes_next_mock_action():
+    llm = FeedbackAwareLLM()
+    tools = SequenceTools([
+        ToolResult(
+            'exit_code=1\nstdout:\nE       AssertionError: expected 2, got 1\n'
+            'File "tests/test_main.py", line 4\nstderr:\n',
+            False,
+        ),
+        ToolResult("value = 2", True),
+    ])
+
+    state = AgentLoop(llm, tools).run(AgentState("fix main"))
+
+    assert [step.action.type for step in state.trajectory] == [
+        "Execute_Test", "Read_File", "Stop"
+    ]
+    assert any("category: assertion" in message.content for message in llm.calls[1])
+    assert state.error_logs[0].category == "assertion"
+    assert state.error_logs[0].location == "tests/test_main.py:4"

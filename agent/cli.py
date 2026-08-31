@@ -100,7 +100,13 @@ def main(argv: list[str] | None = None) -> int:
     if state.error_logs:
         print("Errors:")
         for error in state.error_logs:
-            print(f"- {error.source}: {error.message}")
+            details = ""
+            if error.category is not None:
+                details = f" [{error.category}/{error.error_type or 'unknown'}"
+                if error.location is not None:
+                    details += f" at {error.location}"
+                details += "]"
+            print(f"- {error.source}{details}: {error.message}")
     return 0
 
 

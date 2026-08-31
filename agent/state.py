@@ -27,12 +27,19 @@ class Message:
 class ErrorRecord:
     message: str
     source: str = "tool"
+    category: str | None = None
+    error_type: str | None = None
+    location: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.message) is not str or not self.message:
             raise ValueError("error message must be non-empty")
         if type(self.source) is not str or not self.source:
             raise ValueError("error source must be non-empty")
+        for name in ("category", "error_type", "location"):
+            value = getattr(self, name)
+            if value is not None and (type(value) is not str or not value.strip()):
+                raise ValueError(f"error {name} must be a non-empty string or None")
 
 
 @dataclass(frozen=True)
@@ -78,5 +85,21 @@ class AgentState:
         )
         self.step_count += 1
 
-    def record_error(self, message: str, source: str = "tool") -> None:
-        self.error_logs.append(ErrorRecord(message=message, source=source))
+    def record_error(
+        self,
+        message: str,
+        source: str = "tool",
+        *,
+        category: str | None = None,
+        error_type: str | None = None,
+        location: str | None = None,
+    ) -> None:
+        self.error_logs.append(
+            ErrorRecord(
+                message=message,
+                source=source,
+                category=category,
+                error_type=error_type,
+                location=location,
+            )
+        )

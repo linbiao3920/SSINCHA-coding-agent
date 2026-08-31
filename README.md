@@ -11,6 +11,7 @@
 - **真实 LLM 客户端**：通过 DeepSeek 官方 API 获取下一步 JSON 动作，严格校验响应边界。
 - **文件读写**：提供 `Read_File` 和 `Write_File`，路径只能位于指定 workspace 内。
 - **受限测试执行**：仅允许 `pytest` 或 `npm test`，拒绝 shell 注入字符，命令在 workspace 中执行并有超时。
+- **结构化反馈闭环**：从 pytest 输出提取错误类型、分类、文件位置、行号和摘要，将有限反馈回灌给下一轮模型。
 - **路径围栏**：阻止 `../`、绝对路径和符号链接造成的 workspace 越界访问。
 - **验证驱动停止**：成功写入文件后，必须先有一次成功的 `Execute_Test` 才能 `Stop`；新的写入会使旧验证失效。
 - **重复动作检测**：连续返回完全相同的动作时，不会重复执行该动作。
@@ -128,6 +129,17 @@ python -m agent --session path-demo --reset-session --workspace examples\mytest 
 python -c "from agent.tools import Toolbox; from agent.action import Action; print(Toolbox('examples/mytest').execute(Action('Execute_Test', {'cmd':'pytest && whoami'})))"
 ```
 
+测试失败时，反馈解析器会把原始输出转换为稳定的结构：
+
+```text
+category: assertion
+error_type: AssertionError
+location: tests/test_calculator.py:8
+message: expected 5, got 2
+```
+
+该结构会作为独立消息回灌给 LLM；原始测试输出仍保留在执行轨迹中，便于审计。解析器和反馈闭环均可使用 mock LLM 脱机验证。
+
 项目内的单元测试覆盖路径围栏、重复动作、连续错误熔断、30 步上限、验证驱动停止和 session 恢复等场景。
 
 ---
@@ -140,7 +152,7 @@ SSINCHA-coding-agent/
 │   ├── action.py       # JSON 动作模型和参数校验
 │   ├── cli.py          # 命令行入口和 session 编排
 │   ├── completion.py   # 验证驱动停止门控
-│   ├── feedback.py     # 连续错误检测
+│   ├── feedback.py     # 结构化反馈和连续错误检测
 │   ├── guardrail.py    # 动作执行前的安全检查
 │   ├── llm.py          # DeepSeek 客户端和响应解析
 │   ├── loop.py         # 最多 30 步的主循环

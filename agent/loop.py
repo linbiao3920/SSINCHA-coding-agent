@@ -8,7 +8,7 @@ from typing import Any, Protocol
 from .action import Action
 from .completion import CompletionGate
 from .guardrail import Guardrail
-from .feedback import FeedbackTracker
+from .feedback import FeedbackTracker, extract_test_error, format_structured_feedback
 from .llm import LLMClient, LLMError, parse_action_response
 from .state import AgentState
 
@@ -121,7 +121,23 @@ class AgentLoop:
             completion.observe(action, success=success)
 
             if not success:
-                state.record_error(observation)
+                structured_error = None
+                if action.type == "Execute_Test":
+                    structured_error = extract_test_error(observation)
+                if structured_error is None:
+                    state.record_error(observation)
+                else:
+                    state.record_error(
+                        structured_error.message,
+                        source="pytest",
+                        category=structured_error.category,
+                        error_type=structured_error.error_type,
+                        location=structured_error.location,
+                    )
+                    state.add_message(
+                        "tool",
+                        format_structured_feedback(structured_error),
+                    )
                 if feedback.observe(success=False, observation=observation):
                     state.add_message("tool", "stopped: repeated identical errors")
                     break

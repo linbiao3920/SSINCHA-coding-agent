@@ -1,6 +1,41 @@
 import pytest
 
-from agent.feedback import FeedbackTracker
+from agent.feedback import (
+    FeedbackTracker,
+    StructuredError,
+    extract_test_error,
+    format_structured_feedback,
+)
+
+
+def test_extracts_traceback_error_with_location_and_category():
+    output = '''
+E       assert 2 == 5
+E       AssertionError: expected 5, got 2
+File "tests/test_calculator.py", line 8
+'''
+
+    error = extract_test_error(output)
+
+    assert error == StructuredError(
+        category="assertion",
+        error_type="AssertionError",
+        message="expected 5, got 2",
+        location="tests/test_calculator.py:8",
+    )
+    assert "[structured-feedback]" in format_structured_feedback(error)
+
+
+def test_extracts_missing_test_as_collection_error():
+    error = extract_test_error("ERROR: file or directory not found: missing_test.py")
+
+    assert error is not None
+    assert error.category == "collection"
+    assert error.error_type == "TestCollectionError"
+
+
+def test_non_test_output_is_not_misclassified():
+    assert extract_test_error("some unrelated tool output") is None
 
 
 def test_tracker_stops_on_three_consecutive_identical_failures():
