@@ -19,6 +19,7 @@
 - **连续错误熔断**：同一错误连续出现三次后自动结束循环，避免死循环。
 - **固定步数上限**：单次运行最多执行 30 步。
 - **持久化会话**：使用 `--session` 保存对话历史、验证状态和待验证文件；后续命令仍须运行对应测试才能完成任务。
+- **本地 Web UI**：使用 Python 标准库自建页面，支持密钥、workspace、指令输入，以及会话新建、继续和删除。
 
 ---
 
@@ -74,6 +75,14 @@ stop blocked: run tests after the latest successful write
 ```
 
 模型需要根据反馈先运行测试，测试成功后才能停止。
+
+### 本地 Web UI
+
+```powershell
+python -m agent.web
+```
+
+浏览器打开 `http://127.0.0.1:8765/`。页面提交的 API Key 只在当前请求内存中使用，运行结束后清空，不写入 session；删除对话只删除 `.agent_sessions` 中对应的 JSON 文件。
 
 ---
 

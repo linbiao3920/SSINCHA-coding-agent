@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SSINCHA Coding Agent</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { max-width: 960px; margin: 2rem auto; padding: 0 1rem; background: #111827; color: #e5e7eb; }
+    label { display:block; margin-top: .8rem; font-weight: 600; }
+    input, textarea, button { box-sizing:border-box; width:100%; margin-top:.35rem; padding:.65rem; border:1px solid #4b5563; border-radius:6px; background:#1f2937; color:inherit; }
+    textarea { min-height: 110px; resize: vertical; }
+    button { width:auto; cursor:pointer; background:#2563eb; border:0; margin-right:.5rem; }
+    button.danger { background:#b91c1c; } button.secondary { background:#4b5563; }
+    .row { display:flex; gap:1rem; } .row > * { flex:1; }
+    pre { white-space:pre-wrap; background:#030712; padding:1rem; border-radius:6px; overflow:auto; }
+    #status { margin:1rem 0; color:#93c5fd; }
+  </style>
+</head>
+<body>
+  <h1>SSINCHA Coding Agent</h1>
+  <p>本页面仅在本机运行。API Key 只提交给本地服务，不会保存到对话。</p>
+  <label>DeepSeek API Key <input id="key" type="password" autocomplete="off"></label>
+  <label>Workspace <input id="workspace" placeholder="D:\\CodingAgent\\project"></label>
+  <div class="row"><label>Session 名称 <input id="session" placeholder="demo"></label><div><label>已有会话</label><select id="sessions" style="width:100%;padding:.65rem;margin-top:.35rem"></select></div></div>
+  <label>任务指令 <textarea id="task" placeholder="修复测试并运行验证"></textarea></label>
+  <p><button id="run">运行任务</button><button id="new" class="secondary">新建对话</button><button id="del" class="danger">删除对话</button></p>
+  <div id="status"></div><pre id="output">等待任务...</pre>
+  <script>
+    const $ = id => document.getElementById(id);
+    async function sessions() { const r=await fetch('/api/sessions'); const d=await r.json(); $('sessions').innerHTML=''; for(const n of d.sessions){const o=document.createElement('option');o.value=n;o.textContent=n;$('sessions').append(o);} }
+    $('sessions').onchange=()=>{$('session').value=$('sessions').value;};
+    $('new').onclick=async()=>{const name=$('session').value.trim(),workspace=$('workspace').value.trim(); if(!name||!workspace)return alert('请填写 session 和 workspace'); const r=await fetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,workspace})}); const d=await r.json(); $('status').textContent=d.error||'对话已创建'; sessions();};
+    $('del').onclick=async()=>{const name=$('session').value.trim(); if(!name||!confirm('删除此对话？'))return; const r=await fetch('/api/sessions/'+encodeURIComponent(name),{method:'DELETE'}); const d=await r.json(); $('status').textContent=d.error||'对话已删除'; sessions();};
+    $('run').onclick=async()=>{ $('status').textContent='运行中...'; const body={api_key:$('key').value,workspace:$('workspace').value,task:$('task').value,session:$('session').value||null}; const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const d=await r.json(); $('key').value=''; $('status').textContent=d.error||('完成，退出码 '+d.exit_code); $('output').textContent=JSON.stringify(d,null,2); sessions(); };
+    sessions();
+  </script>
+</body>
+</html>

@@ -46,6 +46,37 @@ class SessionStore:
     def exists(self, name: str) -> bool:
         return self.path_for(name).is_file()
 
+    def list_names(self) -> list[str]:
+        """List valid regular session files without following symlinks."""
+        if not self.root.is_dir():
+            return []
+        names = []
+        for path in self.root.glob("*.json"):
+            if path.is_symlink() or not path.is_file():
+                continue
+            name = path.stem
+            try:
+                self._validate_name(name)
+            except SessionError:
+                continue
+            names.append(name)
+        return sorted(names)
+
+    def delete(self, name: str) -> bool:
+        """Delete one session file; never follows a symlink."""
+        path = self.path_for(name)
+        if path.is_symlink():
+            raise SessionError("session path must be a regular file")
+        if not path.exists():
+            return False
+        if not path.is_file():
+            raise SessionError("session path must be a regular file")
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise SessionError(f"cannot delete session {name!r}") from exc
+        return True
+
     def load_data(self, name: str, workspace: str | Path) -> SessionData:
         path = self.path_for(name)
         if path.is_symlink():

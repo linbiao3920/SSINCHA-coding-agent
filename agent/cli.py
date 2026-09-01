@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .llm import LLMError, RealLLMClient
+from .llm import LLMClient, LLMError, RealLLMClient
 from .completion import CompletionGate
 from .guardrail import Guardrail
 from .loop import AgentLoop
@@ -50,6 +50,7 @@ def run_task(
     session: str | None = None,
     reset_session: bool = False,
     session_store: SessionStore | None = None,
+    llm: LLMClient | None = None,
 ) -> AgentState:
     if reset_session and session is None:
         raise ValueError("--reset-session requires --session")
@@ -70,10 +71,10 @@ def run_task(
         if state.history:
             state.add_message("user", task)
 
-    llm = RealLLMClient.from_environment()
+    client = llm or RealLLMClient.from_environment()
     guardrail = Guardrail(workspace)
     state = AgentLoop(
-        llm=llm,
+        llm=client,
         tools=tools,
         guardrail=guardrail,
         completion_gate=completion,
