@@ -22,14 +22,24 @@ MAX_BODY_BYTES = 1_000_000
 STATIC_DIR = Path(__file__).with_name("static")
 
 
+def _redact_value(value: object, api_key: str) -> object:
+    if isinstance(value, str):
+        return redact(value, [api_key])
+    if isinstance(value, dict):
+        return {key: _redact_value(item, api_key) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_value(item, api_key) for item in value]
+    return value
+
+
 def _state_payload(state, api_key: str) -> dict[str, object]:
     return {
-        "task": state.task,
+        "task": redact(state.task, [api_key]),
         "steps": state.step_count,
         "exit_code": exit_code_for_state(state),
         "trajectory": [
             {
-                "action": step.action.to_dict(),
+                "action": _redact_value(step.action.to_dict(), api_key),
                 "observation": redact(step.observation, [api_key]),
                 "success": step.success,
             }

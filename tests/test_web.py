@@ -56,8 +56,13 @@ def test_web_serves_ui_and_manages_sessions(tmp_path: Path):
 
 def test_web_run_does_not_return_api_key(monkeypatch, tmp_path: Path):
     token = "sk-0123456789abcdef0123456789abcdef"
-    state = AgentState("say hello")
-    state.add_step(Action("Stop", {"reason": "done"}), observation=token, success=True)
+    state = AgentState(f"say hello with {token}")
+    state.add_step(
+        Action("Write_File", {"path": "note.py", "content": token}),
+        observation=token,
+        success=True,
+    )
+    state.add_step(Action("Stop", {"reason": "done"}), success=True)
     monkeypatch.setattr(web, "run_task", lambda *args, **kwargs: state)
 
     server = web.create_server(port=0, session_dir=tmp_path / "sessions")
@@ -71,7 +76,7 @@ def test_web_run_does_not_return_api_key(monkeypatch, tmp_path: Path):
             {
                 "api_key": token,
                 "workspace": str(tmp_path),
-                "task": "say hello",
+                "task": f"say hello with {token}",
             },
         )
         assert status == 200
