@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from .completion import CompletionSnapshot
 from .state import Message
 from .test_target import TestTargetBinder, TestTargetSnapshot
+from .secrets import redact
 
 
 SESSION_VERSION = 1
@@ -139,7 +140,7 @@ class SessionStore:
             "name": name,
             "workspace": str(Path(workspace).resolve()),
             "history": [
-                {"role": message.role, "content": message.content}
+                {"role": message.role, "content": redact(message.content)}
                 for message in history
             ],
         }

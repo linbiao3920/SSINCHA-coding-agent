@@ -94,3 +94,16 @@ def test_session_store_rejects_unsafe_test_target_state(tmp_path: Path):
 
     with pytest.raises(SessionError, match="test target state"):
         store.load_data("demo", workspace)
+
+
+def test_session_store_redacts_provider_tokens_from_history(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    store = SessionStore(tmp_path / "sessions")
+    token = "sk-0123456789abcdef0123456789abcdef"
+
+    store.save("demo", workspace, [Message("user", f"token={token}")])
+
+    payload = json.loads(store.path_for("demo").read_text(encoding="utf-8"))
+    assert token not in json.dumps(payload)
+    assert "<redacted>" in payload["history"][0]["content"]

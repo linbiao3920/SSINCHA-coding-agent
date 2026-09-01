@@ -41,7 +41,13 @@ $env:DEEPSEEK_API_KEY="your-api-key"
 $env:DEEPSEEK_MODEL="deepseek-v4-pro"
 ```
 
-API Key 只从环境变量读取，不写入源代码、session 文件或 Git 提交。
+API Key 不写入源代码、session 文件或 Git 提交。为避免密钥出现在命令历史中，也可以保存为本地未跟踪文件并设置：
+
+```powershell
+$env:DEEPSEEK_API_KEY_FILE="C:\secure\deepseek.key"
+```
+
+客户端优先读取环境变量，其次读取密钥文件，最后读取仓库外/本地 `.env`；错误诊断会自动脱敏密钥。`.env`、密钥文件和 API Key 均不应提交到 Git。
 
 ---
 

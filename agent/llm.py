@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-import os
 from typing import Protocol, Sequence
 
 from .action import Action, ActionValidationError
 from .state import Message
+from .secrets import SecretError, load_provider_credentials, redact
 
 
 MAX_RESPONSE_CHARS = 327_680
@@ -74,7 +74,7 @@ def parse_action_response(raw: str) -> Action:
 
 @dataclass
 class RealLLMClient:
-    """DeepSeek client with environment-only credential loading."""
+    """DeepSeek client with non-persistent credential loading."""
 
     api_key: str
     model: str = "deepseek-v4-pro"
@@ -93,13 +93,11 @@ class RealLLMClient:
 
     @classmethod
     def from_environment(cls) -> "RealLLMClient":
-        api_key = os.getenv("DEEPSEEK_API_KEY")
-        if not api_key:
-            raise LLMError("set DEEPSEEK_API_KEY before running")
-        return cls(
-            api_key=api_key,
-            model=os.getenv("DEEPSEEK_MODEL") or "deepseek-v4-pro",
-        )
+        try:
+            credentials = load_provider_credentials()
+        except SecretError as exc:
+            raise LLMError(str(exc)) from exc
+        return cls(api_key=credentials.api_key, model=credentials.model)
 
     def complete(self, messages: Sequence[Message]) -> str:
         if not messages:
@@ -123,7 +121,8 @@ class RealLLMClient:
             )
             content = response.output_text
         except Exception as exc:
-            raise LLMError(f"LLM request failed: {type(exc).__name__}: {exc}") from exc
+            detail = redact(f"{type(exc).__name__}: {exc}", [self.api_key])
+            raise LLMError(f"LLM request failed: {detail}") from exc
         if type(content) is not str or not content.strip():
             incomplete = getattr(response, "incomplete_details", None)
             reason = getattr(incomplete, "reason", None)
