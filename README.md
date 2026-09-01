@@ -59,6 +59,8 @@ python -m agent --workspace examples\demo_project "Fix the failing calculator te
 Read_File -> Write_File -> Execute_Test -> Stop
 ```
 
+命令仅在最终 `Stop` 成功时返回退出码 `0`；LLM 错误、熔断或达到步数上限而未完成时返回 `1`，启动配置错误返回 `2`，可直接用于脚本或 CI 判断任务状态。
+
 如果模型在写入后直接请求停止，系统会返回：
 
 ```text

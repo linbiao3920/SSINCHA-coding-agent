@@ -4,7 +4,13 @@ import pytest
 
 from agent.action import Action
 from agent import cli
-from agent.cli import build_parser
+from agent.cli import (
+    EXIT_INCOMPLETE,
+    EXIT_SUCCESS,
+    build_parser,
+    exit_code_for_state,
+)
+from agent.state import AgentState
 from agent.session import SessionStore
 
 
@@ -21,6 +27,27 @@ def test_cli_parser_accepts_session_options():
 
     assert args.session == "demo"
     assert args.reset_session is True
+
+
+def test_exit_code_requires_a_final_successful_stop():
+    completed = AgentState("done")
+    completed.add_step(Action("Stop", {"reason": "done"}), success=True)
+    incomplete = AgentState("failed")
+    incomplete.record_error("LLM request failed", source="llm")
+    exhausted = AgentState("keep working")
+    exhausted.add_step(Action("Read_File", {"path": "main.py"}), success=True)
+
+    assert exit_code_for_state(completed) == EXIT_SUCCESS
+    assert exit_code_for_state(incomplete) == EXIT_INCOMPLETE
+    assert exit_code_for_state(exhausted) == EXIT_INCOMPLETE
+
+
+def test_main_returns_nonzero_when_loop_ends_with_llm_error(monkeypatch, tmp_path: Path):
+    state = AgentState("fix the bug")
+    state.record_error("LLM request failed", source="llm")
+    monkeypatch.setattr(cli, "run_task", lambda *_args, **_kwargs: state)
+
+    assert cli.main(["fix the bug", "--workspace", str(tmp_path)]) == EXIT_INCOMPLETE
 
 
 class RecordingLLM:
