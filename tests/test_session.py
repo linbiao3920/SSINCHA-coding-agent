@@ -7,6 +7,7 @@ from agent.action import Action
 from agent.completion import CompletionGate
 from agent.session import SessionError, SessionStore
 from agent.state import Message
+from agent.test_target import TestTargetSnapshot
 
 
 def test_session_store_round_trips_history(tmp_path: Path):
@@ -24,12 +25,20 @@ def test_session_store_round_trips_history(tmp_path: Path):
         success=True,
     )
 
-    path = store.save("demo-1", workspace, history, completion=gate.snapshot())
+    targets = TestTargetSnapshot(("main.py",))
+    path = store.save(
+        "demo-1",
+        workspace,
+        history,
+        completion=gate.snapshot(),
+        test_targets=targets,
+    )
 
     assert path.is_file()
     assert store.load("demo-1", workspace) == history
     data = store.load_data("demo-1", workspace)
     assert data.completion == gate.snapshot()
+    assert data.test_targets == targets
 
 
 def test_session_store_rejects_different_workspace(tmp_path: Path):
@@ -67,3 +76,21 @@ def test_session_store_rejects_corrupt_history(tmp_path: Path):
 
     with pytest.raises(SessionError, match="invalid message"):
         store.load("demo", workspace)
+
+
+def test_session_store_rejects_unsafe_test_target_state(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    store = SessionStore(tmp_path / "sessions")
+    store.root.mkdir()
+    payload = {
+        "version": 1,
+        "name": "demo",
+        "workspace": str(workspace.resolve()),
+        "history": [],
+        "test_targets": {"modified_paths": ["../outside.py"]},
+    }
+    store.path_for("demo").write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(SessionError, match="test target state"):
+        store.load_data("demo", workspace)

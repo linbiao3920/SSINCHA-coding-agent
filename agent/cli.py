@@ -58,11 +58,15 @@ def run_task(
     store = session_store or SessionStore()
     state = AgentState(task=task)
     completion = CompletionGate()
+    test_target_binder = TestTargetBinder(tools.workspace)
     if session is not None:
         if not reset_session:
             session_data = store.load_data(session, tools.workspace)
             state.history.extend(session_data.history)
             completion = CompletionGate.from_snapshot(session_data.completion)
+            test_target_binder = TestTargetBinder.from_snapshot(
+                tools.workspace, session_data.test_targets
+            )
         if state.history:
             state.add_message("user", task)
 
@@ -73,10 +77,16 @@ def run_task(
         tools=tools,
         guardrail=guardrail,
         completion_gate=completion,
-        test_target_binder=TestTargetBinder(tools.workspace),
+        test_target_binder=test_target_binder,
     ).run(state)
     if session is not None:
-        store.save(session, tools.workspace, state.history, completion=completion.snapshot())
+        store.save(
+            session,
+            tools.workspace,
+            state.history,
+            completion=completion.snapshot(),
+            test_targets=test_target_binder.snapshot(),
+        )
     return state
 
 

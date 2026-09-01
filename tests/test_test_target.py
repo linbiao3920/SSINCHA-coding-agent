@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from agent.test_target import TestTargetBinder
+import pytest
+
+from agent.test_target import TestTargetBinder, TestTargetSnapshot
 
 
 def test_binder_allows_focused_test_for_modified_source(tmp_path: Path):
@@ -54,3 +56,31 @@ def test_successful_test_clears_modified_targets(tmp_path: Path):
     binder.observe_test(success=True)
 
     assert binder.modified_paths == frozenset()
+
+
+def test_binder_snapshot_round_trips_canonical_modified_paths(tmp_path: Path):
+    binder = TestTargetBinder(tmp_path)
+    binder.observe_write("src/app.py")
+    binder.observe_write("main.py")
+
+    snapshot = binder.snapshot()
+    restored = TestTargetBinder.from_snapshot(tmp_path, snapshot)
+
+    assert snapshot == TestTargetSnapshot(("main.py", "src/app.py"))
+    assert restored.modified_paths == frozenset({"main.py", "src/app.py"})
+
+
+@pytest.mark.parametrize(
+    "snapshot",
+    [
+        TestTargetSnapshot(("../outside.py",)),
+        TestTargetSnapshot(("src\\app.py",)),
+        TestTargetSnapshot(("src/../app.py",)),
+        TestTargetSnapshot(("main.py", "main.py")),
+    ],
+)
+def test_binder_rejects_unsafe_or_noncanonical_snapshots(
+    tmp_path: Path, snapshot: TestTargetSnapshot
+):
+    with pytest.raises(ValueError, match="snapshot"):
+        TestTargetBinder.from_snapshot(tmp_path, snapshot)

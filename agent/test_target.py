@@ -13,6 +13,15 @@ class TargetDecision:
     reason: str = ""
 
 
+@dataclass(frozen=True)
+class TestTargetSnapshot:
+    """Serializable record of files awaiting a focused test."""
+
+    __test__ = False
+
+    modified_paths: tuple[str, ...]
+
+
 class TestTargetBinder:
     """Require test commands to name tests relevant to modified files."""
 
@@ -27,6 +36,43 @@ class TestTargetBinder:
     @property
     def modified_paths(self) -> frozenset[str]:
         return frozenset(self._modified)
+
+    def snapshot(self) -> TestTargetSnapshot:
+        """Return canonical workspace-relative paths in a stable order."""
+        return TestTargetSnapshot(tuple(sorted(self._modified)))
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        workspace: str | Path,
+        snapshot: TestTargetSnapshot | None,
+    ) -> "TestTargetBinder":
+        """Restore validated pending test targets for one workspace."""
+        binder = cls(workspace)
+        if snapshot is None:
+            return binder
+        if type(snapshot) is not TestTargetSnapshot:
+            raise ValueError("test target snapshot has an invalid type")
+        if type(snapshot.modified_paths) is not tuple:
+            raise ValueError("test target snapshot paths must be a tuple")
+
+        restored: set[str] = set()
+        for path in snapshot.modified_paths:
+            if type(path) is not str or not path:
+                raise ValueError("test target snapshot path must be a non-empty string")
+            if "\\" in path or PurePosixPath(path).is_absolute():
+                raise ValueError("test target snapshot path must be workspace-relative")
+            try:
+                normalized = binder._relative(path)
+            except ValueError as exc:
+                raise ValueError("test target snapshot path escapes workspace") from exc
+            if normalized == "." or normalized != path:
+                raise ValueError("test target snapshot path is not canonical")
+            if normalized in restored:
+                raise ValueError("test target snapshot contains duplicate paths")
+            restored.add(normalized)
+        binder._modified = restored
+        return binder
 
     def observe_write(self, path: str) -> None:
         target = self._relative(path)

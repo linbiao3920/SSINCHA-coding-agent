@@ -12,6 +12,7 @@ from typing import Sequence
 from dataclasses import dataclass
 from .completion import CompletionSnapshot
 from .state import Message
+from .test_target import TestTargetBinder, TestTargetSnapshot
 
 
 SESSION_VERSION = 1
@@ -28,6 +29,7 @@ class SessionError(ValueError):
 class SessionData:
     history: list[Message]
     completion: CompletionSnapshot | None = None
+    test_targets: TestTargetSnapshot | None = None
 
 
 class SessionStore:
@@ -96,7 +98,28 @@ class SessionStore:
             ):
                 raise SessionError("session completion state is invalid")
             completion = CompletionSnapshot(requires_test, latest_test_success)
-        return SessionData(history=history, completion=completion)
+        raw_test_targets = payload.get("test_targets")
+        test_targets = None
+        if raw_test_targets is not None:
+            if type(raw_test_targets) is not dict:
+                raise SessionError("session test target state is invalid")
+            modified_paths = raw_test_targets.get("modified_paths")
+            if type(modified_paths) is not list or any(
+                type(path) is not str for path in modified_paths
+            ):
+                raise SessionError("session test target state is invalid")
+            try:
+                test_targets = TestTargetBinder.from_snapshot(
+                    expected_workspace,
+                    TestTargetSnapshot(tuple(modified_paths)),
+                ).snapshot()
+            except ValueError as exc:
+                raise SessionError("session test target state is invalid") from exc
+        return SessionData(
+            history=history,
+            completion=completion,
+            test_targets=test_targets,
+        )
 
     def load(self, name: str, workspace: str | Path) -> list[Message]:
         """Load only history for callers that do not need completion state."""
@@ -108,6 +131,7 @@ class SessionStore:
         workspace: str | Path,
         history: Sequence[Message],
         completion: CompletionSnapshot | None = None,
+        test_targets: TestTargetSnapshot | None = None,
     ) -> Path:
         path = self.path_for(name)
         payload = {
@@ -125,6 +149,16 @@ class SessionStore:
             payload["completion"] = {
                 "requires_test": completion.requires_test,
                 "latest_test_success": completion.latest_test_success,
+            }
+        if test_targets is not None:
+            try:
+                validated_targets = TestTargetBinder.from_snapshot(
+                    workspace, test_targets
+                ).snapshot()
+            except ValueError as exc:
+                raise SessionError("test target state has an invalid value") from exc
+            payload["test_targets"] = {
+                "modified_paths": list(validated_targets.modified_paths),
             }
         encoded = json.dumps(payload, ensure_ascii=False, indent=2)
         if len(encoded.encode("utf-8")) > MAX_SESSION_BYTES:
