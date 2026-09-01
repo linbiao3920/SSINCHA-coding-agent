@@ -6,6 +6,46 @@
 
 ---
 
+## 评估合规与边界
+
+本项目不是在现成 Agent 产品上套界面。DeepSeek/OpenAI 兼容客户端只负责发送消息、取得文本响应；以下关键逻辑均在本仓库本地实现：
+
+| 评估项 | 本项目实现 |
+| --- | --- |
+| 对话与上下文 | `AgentState` 保存 system/user/assistant/tool 历史；`SessionStore` 原子化保存和恢复历史、验证状态、待验证文件。 |
+| 模型输出解析 | 每轮只接受一个 JSON 对象，拒绝 prose、多个对象、未知动作、缺参和超长响应。 |
+| 工具定义与本地执行 | `Toolbox` 自行实现文件读写和受限测试执行；未使用 Code Interpreter、Files API 或服务端文件工具。 |
+| 循环控制 | `AgentLoop` 自行实现 30 步上限、重复动作阻止、连续错误熔断、验证驱动 Stop。 |
+| 安全控制 | `Guardrail`、`Toolbox` 和 `TestTargetBinder` 分别处理路径、命令和测试关联性。 |
+| 不使用的框架 | 未使用 LangChain、LlamaIndex、OpenAI Agents SDK、Claude Agent SDK、AutoGen、CrewAI 或 Gradio。 |
+
+模型仅能提出动作，不能拥有本机 shell、文件系统或测试进程的直接权限。
+
+## 架构与执行流程
+
+```text
+CLI / Local Web UI
+        |
+        v
+AgentState <-> SessionStore（本地历史、验证状态、待验证文件）
+        |
+        v
+DeepSeek API -> 严格 JSON 解析 -> Action
+                                  |
+                                  v
+              Guardrail + TestTargetBinder + CompletionGate
+                                  |
+                                  v
+                  Toolbox（本地文件读写 / pytest 或 npm test）
+                                  |
+                                  v
+             轨迹、结构化反馈、错误熔断 -> 下一轮或 Stop
+```
+
+典型的修复轨迹为 `Read_File -> Write_File -> Execute_Test -> Stop`。工具输出进入下一轮模型上下文，但模型输出的动作始终先经过本地校验。
+
+---
+
 ## 功能概览
 
 - **真实 LLM 客户端**：通过 DeepSeek 官方 API 获取下一步 JSON 动作，严格校验响应边界。
@@ -20,6 +60,7 @@
 - **固定步数上限**：单次运行最多执行 30 步。
 - **持久化会话**：使用 `--session` 保存对话历史、验证状态和待验证文件；后续命令仍须运行对应测试才能完成任务。
 - **本地 Web UI**：使用 Python 标准库自建页面，支持密钥、workspace、指令输入，以及会话新建、继续和删除。
+- **密钥管理**：支持环境变量、密钥文件和本地 `.env`；密钥不会写入 Git、Agent session 或 Web API 响应。
 
 ---
 
@@ -49,6 +90,14 @@ $env:DEEPSEEK_API_KEY_FILE="C:\secure\deepseek.key"
 ```
 
 客户端优先读取环境变量，其次读取密钥文件，最后读取仓库外/本地 `.env`；错误诊断会自动脱敏密钥。`.env`、密钥文件和 API Key 均不应提交到 Git。
+
+加载优先级为：
+
+```text
+DEEPSEEK_API_KEY -> DEEPSEEK_API_KEY_FILE -> .env
+```
+
+密钥文件、`.env` 和 `sk-...` 风格令牌会受到 `.gitignore` 或脱敏逻辑保护；session 持久化前也会处理令牌，避免模型回显或异常信息把密钥写入本地会话文件。
 
 ---
 
@@ -83,6 +132,14 @@ python -m agent.web
 ```
 
 浏览器打开 `http://127.0.0.1:8765/`。页面提交的 API Key 会保存在当前浏览器标签页的 `sessionStorage`，因此运行后和刷新页面仍会保留；它不会写入 Agent session 或服务器文件。关闭标签页即可清除浏览器中的密钥；删除对话只删除 `.agent_sessions` 中对应的 JSON 文件。
+
+Web 服务由 `agent/web.py` 通过 Python 标准库 `http.server` 提供，默认只监听 `127.0.0.1:8765`。前端为原生 HTML/CSS/JavaScript，不使用 Gradio 或 Web 框架。页面支持：
+
+- 输入 API Key、workspace、任务指令和 session 名称；
+- 新建、继续和删除 session；
+- 显示动作摘要、pytest 通过数量、Stop 成功原因和历史警告数；
+- 使用“清空反馈”只清除页面显示，不影响 API Key、任务输入、session 或 workspace；
+- 对 Web 返回的任务、动作参数、观察和错误执行密钥脱敏。
 
 ---
 
@@ -129,7 +186,9 @@ python -m agent --session demo --workspace examples\mytest "Make unknown.py prin
 python -m agent --session demo --reset-session --workspace examples\mytest "Start a new task."
 ```
 
-会话保存在仓库根目录的 `.agent_sessions/`，并绑定首次使用的 workspace。会话文件不保存 API Key，也不应加入 Git。
+会话保存在仓库根目录的 `.agent_sessions/`，并绑定首次使用的 workspace。会话文件不保存 API Key，也不应加入 Git。除消息历史外，会话还保存 `CompletionGate` 的验证状态和 `TestTargetBinder` 的待验证文件集合；因此跨命令继续 session 时，不能通过运行无关测试绕过最近一次写入后的验证。
+
+会话写入使用临时文件加原子替换；读取时会拒绝符号链接、超大文件、损坏 JSON、不同 workspace、非规范路径和危险的待验证文件状态。删除会话只删除对应 JSON，绝不删除 workspace 文件。
 
 ---
 
@@ -158,7 +217,7 @@ message: expected 5, got 2
 
 该结构会作为独立消息回灌给 LLM；原始测试输出仍保留在执行轨迹中，便于审计。解析器和反馈闭环均可使用 mock LLM 脱机验证。
 
-项目内的单元测试覆盖路径围栏、重复动作、连续错误熔断、30 步上限、验证驱动停止和 session 恢复等场景。
+项目内的单元与集成测试覆盖路径围栏、重复动作、连续错误熔断、30 步上限、验证驱动停止、测试目标绑定、跨 session 恢复、密钥加载/脱敏及 Web UI 会话路由等场景。测试用确定性替身 LLM，不调用真实模型服务。
 
 ---
 
@@ -174,9 +233,13 @@ SSINCHA-coding-agent/
 │   ├── guardrail.py    # 动作执行前的安全检查
 │   ├── llm.py          # DeepSeek 客户端和响应解析
 │   ├── loop.py         # 最多 30 步的主循环
+│   ├── secrets.py       # 密钥加载优先级与脱敏
 │   ├── session.py      # 持久化会话
 │   ├── state.py        # 消息、轨迹和错误状态
-│   └── tools.py        # 文件工具和受限测试执行
+│   ├── test_target.py  # 修改文件与聚焦测试绑定
+│   ├── tools.py        # 文件工具和受限测试执行
+│   ├── web.py          # 本地 HTTP 服务
+│   └── static/         # 原生 Web UI 页面
 ├── examples/
 │   ├── demo_project/   # 计算器修复示例
 │   └── mytest/         # 用户自定义 workspace
@@ -202,7 +265,7 @@ python -m pytest -q
 python -m pytest tests\test_loop.py tests\test_tools.py tests\test_guardrail.py tests\test_completion.py tests\test_session.py -q
 ```
 
-当前完整测试套件应全部通过。
+当前完整测试套件为 **72 passed**。它覆盖 JSON 响应边界、本地工具与命令限制、路径围栏、循环终止、验证门控、测试绑定、session 安全、密钥脱敏和 Web UI 的会话操作。
 
 ---
 
@@ -210,7 +273,7 @@ python -m pytest tests\test_loop.py tests\test_tools.py tests\test_guardrail.py 
 
 - 当前工具集没有 `Delete_File` 动作，删除文件需要人工完成。
 - 测试目标绑定要求测试命令显式指定与修改文件对应的测试路径；若项目没有对应测试，需先创建测试。
-- 只有一个模型动作循环，没有 Gradio WebUI、Docker 部署或 CI 自动化。
+- 只有一个模型动作循环，没有 Docker 部署或 CI 自动化；Web UI 是本地单用户页面，不是多用户服务。
 - 需要有效的 DeepSeek API Key 才能运行真实 Agent；单元测试使用本地确定性替身，不调用网络。
 - 单次运行最多 30 步，单次测试命令默认超时 60 秒。
 
