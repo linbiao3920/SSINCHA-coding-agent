@@ -109,6 +109,7 @@ class AgentLoop:
                 observation = "action blocked: repeated action"
                 state.add_step(action, observation=observation, success=False)
                 state.add_message("tool", observation)
+                state.record_error(observation, source="repeated_action")
                 last_action = action
                 continue
 
@@ -157,7 +158,9 @@ class AgentLoop:
                         format_structured_feedback(structured_error),
                     )
                 if feedback.observe(success=False, observation=observation):
-                    state.add_message("tool", "stopped: repeated identical errors")
+                    breaker_message = "stopped: repeated identical errors"
+                    state.add_message("tool", breaker_message)
+                    state.record_error(breaker_message, source="breaker")
                     break
             else:
                 feedback.observe(success=True, observation=observation)

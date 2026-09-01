@@ -34,6 +34,14 @@ def test_web_serves_ui_and_manages_sessions(tmp_path: Path):
         connection.close()
         assert response.status == 200
         assert "DeepSeek API Key" in html
+        assert "function renderResult" in html
+        assert "JSON.stringify(d,null,2)" not in html
+        assert "历史警告：" in html
+        assert "item.action.params.reason" in html
+        assert "sessionStorage" in html
+        assert "$('key').value=''" not in html
+        assert 'id="clear"' in html
+        assert "等待任务..." in html
 
         status, created = _request(
             server,

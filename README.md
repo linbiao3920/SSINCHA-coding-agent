@@ -82,7 +82,7 @@ stop blocked: run tests after the latest successful write
 python -m agent.web
 ```
 
-浏览器打开 `http://127.0.0.1:8765/`。页面提交的 API Key 只在当前请求内存中使用，运行结束后清空，不写入 session；删除对话只删除 `.agent_sessions` 中对应的 JSON 文件。
+浏览器打开 `http://127.0.0.1:8765/`。页面提交的 API Key 会保存在当前浏览器标签页的 `sessionStorage`，因此运行后和刷新页面仍会保留；它不会写入 Agent session 或服务器文件。关闭标签页即可清除浏览器中的密钥；删除对话只删除 `.agent_sessions` 中对应的 JSON 文件。
 
 ---
 

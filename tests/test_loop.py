@@ -67,6 +67,7 @@ def test_loop_blocks_repeated_actions_without_reexecuting_them():
     )
     assert len(tools.calls) == 1
     assert state.trajectory[1].success is False
+    assert state.error_logs[-1].source == "repeated_action"
 
 
 def test_loop_stops_after_three_identical_failures():
@@ -78,7 +79,8 @@ def test_loop_stops_after_three_identical_failures():
     ]
     state = AgentLoop(ScriptedLLM(actions), tools).run(AgentState("run tests"))
     assert len(state.trajectory) == 3
-    assert state.error_logs[-1].message == "test failed"
+    assert any(error.message == "test failed" for error in state.error_logs)
+    assert state.error_logs[-1].source == "breaker"
 
 
 def test_loop_uses_guardrail_before_tool_execution(tmp_path: Path):
