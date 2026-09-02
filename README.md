@@ -190,6 +190,21 @@ Compose 默认只绑定 `127.0.0.1:8765`，并使用命名卷保存 session。�
 
 ---
 
+## 测试目标绑定策略
+
+`TestTargetBinder` 按修改文件类型决定验证要求，避免把 Python 命名约定错误套用到前端项目：
+
+| 最近写入的文件 | 可接受的验证 |
+| --- | --- |
+| `*.py` | 显式的关联 pytest 目标，例如 `pytest tests/test_calculator.py`；也会识别导入关联。 |
+| `*.js`、`*.jsx`、`*.mjs`、`*.cjs`、`*.ts`、`*.tsx`、`*.mts`、`*.cts` | `npm test`。 |
+| `package.json`、`package-lock.json`、`npm-shrinkwrap.json` | `npm test`。 |
+| 非代码资产，如 `settings.toml` | 不虚构 `tests/test_settings.py`；仍由验证驱动 Stop 要求一次成功测试。 |
+
+因此，修改 `package.json` 后运行 `npm test` 可以正常通过绑定校验；运行 `pytest` 则收到明确的 `package.json -> npm test` 反馈。待验证路径会随 session 继续保存，不能用后续无关测试绕过。
+
+---
+
 ## 持久化会话
 
 会话名称由字母、数字、下划线和连字符组成，最长 64 个字符。
@@ -232,7 +247,13 @@ python -m agent --session path-demo --reset-session --workspace examples\mytest 
 python -c "from agent.tools import Toolbox; from agent.action import Action; print(Toolbox('examples/mytest').execute(Action('Execute_Test', {'cmd':'pytest && whoami'})))"
 ```
 
-测试失败时，反馈解析器会把原始输出转换为稳定的结构：
+测试命令的路径参数也不能越界：
+
+```powershell
+python -c "from agent.tools import Toolbox; from agent.action import Action; print(Toolbox('examples/mytest').execute(Action('Execute_Test', {'cmd':'pytest ../outside.py'})))"
+```
+
+两项命令都在启动 pytest 前被拒绝，不会读取 workspace 外文件或执行 `whoami`。测试失败时，反馈解析器会把原始输出转换为稳定的结构：
 
 ```text
 category: assertion
