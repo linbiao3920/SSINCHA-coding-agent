@@ -7,6 +7,10 @@ from pathlib import Path, PurePosixPath
 import shlex
 
 
+_NPM_TEST_SUFFIXES = frozenset({".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"})
+_NPM_TEST_FILENAMES = frozenset({"package.json", "package-lock.json", "npm-shrinkwrap.json"})
+
+
 @dataclass(frozen=True)
 class TargetDecision:
     allowed: bool
@@ -107,9 +111,19 @@ class TestTargetBinder:
 
         missing: list[str] = []
         for modified in sorted(self._modified):
+            if self._requires_npm_test(modified):
+                if not self._is_npm_test(parts):
+                    missing.append(f"{modified} -> npm test")
+                continue
+
             expected = self._expected_tests(modified)
             if not expected:
-                expected = {self._display_candidate(modified)}
+                if PurePosixPath(modified).suffix == ".py":
+                    expected = {self._display_candidate(modified)}
+                else:
+                    # A non-code asset has no conventionally derivable focused test.
+                    # CompletionGate still requires a successful test after the write.
+                    continue
             if not any(
                 self._target_matches(target, candidate)
                 for target in targets
@@ -123,6 +137,15 @@ class TestTargetBinder:
                 + "; ".join(missing),
             )
         return TargetDecision(True)
+
+    @staticmethod
+    def _requires_npm_test(modified: str) -> bool:
+        path = PurePosixPath(modified)
+        return path.suffix.lower() in _NPM_TEST_SUFFIXES or path.name in _NPM_TEST_FILENAMES
+
+    @staticmethod
+    def _is_npm_test(parts: list[str]) -> bool:
+        return len(parts) >= 2 and parts[0] == "npm" and parts[1] == "test"
 
     def _expected_tests(self, modified: str) -> set[str]:
         path = PurePosixPath(modified)

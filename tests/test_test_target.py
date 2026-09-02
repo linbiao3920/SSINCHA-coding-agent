@@ -60,6 +60,36 @@ def test_binder_requires_explicit_target_for_broad_pytest(tmp_path: Path):
     assert binder.inspect("pytest test_greet.py").allowed is True
 
 
+def test_binder_uses_npm_test_for_package_manifest(tmp_path: Path):
+    binder = TestTargetBinder(tmp_path)
+    binder.observe_write("package.json")
+
+    assert binder.inspect("npm test").allowed is True
+    decision = binder.inspect("pytest")
+    assert decision.allowed is False
+    assert decision.reason == "test target mismatch: explicitly run the focused tests for package.json -> npm test"
+
+
+@pytest.mark.parametrize("path", ["src/app.js", "src/app.ts", "src/view.tsx"])
+def test_binder_uses_npm_test_for_javascript_and_typescript(tmp_path: Path, path: str):
+    binder = TestTargetBinder(tmp_path)
+    binder.observe_write(path)
+
+    assert binder.inspect("npm test").allowed is True
+    decision = binder.inspect("pytest")
+    assert decision.allowed is False
+    assert f"{path} -> npm test" in decision.reason
+
+
+def test_binder_does_not_invent_python_test_for_noncode_file(tmp_path: Path):
+    binder = TestTargetBinder(tmp_path)
+    binder.observe_write("settings.toml")
+
+    decision = binder.inspect("pytest")
+
+    assert decision.allowed is True
+
+
 def test_successful_test_clears_modified_targets(tmp_path: Path):
     binder = TestTargetBinder(tmp_path)
     binder.observe_write("main.py")

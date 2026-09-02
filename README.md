@@ -52,7 +52,7 @@ DeepSeek API -> 严格 JSON 解析 -> Action
 - **文件读写**：提供 `Read_File` 和 `Write_File`，路径只能位于指定 workspace 内。
 - **受限测试执行**：仅允许 `pytest` 或 `npm test`；命令及其路径参数均不能越过 workspace，拒绝 shell 注入字符并有超时。
 - **结构化反馈闭环**：从 pytest 输出提取错误类型、分类、文件位置、行号和摘要，将有限反馈回灌给下一轮模型。
-- **测试目标绑定**：成功写入后要求测试命令明确覆盖对应测试文件，避免修改 `greet.py` 却只验证无关的 `test_blackjack.py`。
+- **测试目标绑定**：Python 写入要求聚焦 pytest；JS/TS、`package.json` 和 npm 锁文件要求 `npm test`，避免无关测试冒充验证或虚构 Python 测试路径。
 - **路径围栏**：阻止 `../`、绝对路径和符号链接造成的 workspace 越界访问。
 - **验证驱动停止**：成功写入文件后，必须先有一次成功的 `Execute_Test` 才能 `Stop`；新的写入会使旧验证失效。
 - **重复动作检测**：连续返回完全相同的动作时，不会重复执行该动作。
@@ -294,7 +294,7 @@ python -m pytest -q
 python -m pytest tests\test_loop.py tests\test_tools.py tests\test_guardrail.py tests\test_completion.py tests\test_session.py -q
 ```
 
-当前完整测试套件为 **77 passed**。它覆盖 JSON 响应边界、本地工具与命令限制、测试路径围栏、循环终止、验证门控、测试绑定、session 安全、密钥脱敏、Web UI 会话操作，以及 Dockerfile、构建上下文和 Compose 的关键安全约束。
+当前完整测试套件为 **82 passed**。它覆盖 JSON 响应边界、本地工具与命令限制、测试路径围栏、Python/JS/TS 测试绑定、循环终止、验证门控、session 安全、密钥脱敏、Web UI 会话操作，以及 Dockerfile、构建上下文和 Compose 的关键安全约束。
 
 ---
 
