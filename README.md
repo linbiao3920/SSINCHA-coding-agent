@@ -61,6 +61,7 @@ DeepSeek API -> 严格 JSON 解析 -> Action
 - **持久化会话**：使用 `--session` 保存对话历史、验证状态和待验证文件；后续命令仍须运行对应测试才能完成任务。
 - **本地 Web UI**：使用 Python 标准库自建页面，支持密钥、workspace、指令输入，以及会话新建、继续和删除。
 - **密钥管理**：支持环境变量、密钥文件和本地 `.env`；密钥不会写入 Git、Agent session 或 Web API 响应。
+- **Docker 容器化**：非 root 镜像、最小构建上下文、显式 workspace 挂载和独立 session 卷，便于复现演示环境。
 
 ---
 
@@ -140,6 +141,31 @@ Web 服务由 `agent/web.py` 通过 Python 标准库 `http.server` 提供，默�
 - 显示动作摘要、pytest 通过数量、Stop 成功原因和历史警告数；
 - 使用“清空反馈”只清除页面显示，不影响 API Key、任务输入、session 或 workspace；
 - 对 Web 返回的任务、动作参数、观察和错误执行密钥脱敏。
+
+### Docker Web UI
+
+Docker Desktop 安装并启动后，在仓库根目录构建：
+
+```powershell
+docker build -t ssincha-coding-agent .
+```
+
+启动本地 Web UI，并将一个专用工作目录挂载到容器的 `/workspace`：
+
+```powershell
+docker run --rm -p 127.0.0.1:8765:8765 -v "D:\CodingAgent\myproject:/workspace" -v ssincha-agent-sessions:/data/sessions ssincha-coding-agent
+```
+
+浏览器打开 `http://127.0.0.1:8765/`，在页面的 workspace 输入 `/workspace`。API Key 仍从页面输入，不写入镜像、容器层或 Docker 命令行。
+
+也可以使用 Compose。PowerShell 中先指定要挂载的工作目录：
+
+```powershell
+$env:SSINCHA_WORKSPACE="D:\CodingAgent\myproject"
+docker compose up --build
+```
+
+Compose 默认只绑定 `127.0.0.1:8765`，并使用命名卷保存 session。不要挂载整个磁盘、用户目录或重要代码库；容器内 Agent 对 `/workspace` 的成功写入会同步到被挂载的宿主机目录。
 
 ---
 
@@ -246,6 +272,9 @@ SSINCHA-coding-agent/
 ├── tests/              # Agent 单元测试
 ├── pyproject.toml
 ├── requirements.txt
+├── Dockerfile           # 非 root Web UI 容器镜像
+├── compose.yaml         # 本地端口、workspace 和 session 卷编排
+├── .dockerignore        # 从镜像上下文排除密钥、session 和本地输出
 └── README.md
 ```
 
@@ -265,7 +294,7 @@ python -m pytest -q
 python -m pytest tests\test_loop.py tests\test_tools.py tests\test_guardrail.py tests\test_completion.py tests\test_session.py -q
 ```
 
-当前完整测试套件为 **72 passed**。它覆盖 JSON 响应边界、本地工具与命令限制、路径围栏、循环终止、验证门控、测试绑定、session 安全、密钥脱敏和 Web UI 的会话操作。
+当前完整测试套件为 **75 passed**。它覆盖 JSON 响应边界、本地工具与命令限制、路径围栏、循环终止、验证门控、测试绑定、session 安全、密钥脱敏、Web UI 会话操作，以及 Dockerfile、构建上下文和 Compose 的关键安全约束。
 
 ---
 
@@ -273,7 +302,8 @@ python -m pytest tests\test_loop.py tests\test_tools.py tests\test_guardrail.py 
 
 - 当前工具集没有 `Delete_File` 动作，删除文件需要人工完成。
 - 测试目标绑定要求测试命令显式指定与修改文件对应的测试路径；若项目没有对应测试，需先创建测试。
-- 只有一个模型动作循环，没有 Docker 部署或 CI 自动化；Web UI 是本地单用户页面，不是多用户服务。
+- 只有一个模型动作循环，没有 CI 自动化；Web UI 和 Docker 方案均为本地单用户演示，不是多用户服务。
+- Docker 仅隔离运行环境；容器写入显式挂载的 `/workspace` 时，仍会修改对应宿主机目录。应只挂载专用测试项目。
 - 需要有效的 DeepSeek API Key 才能运行真实 Agent；单元测试使用本地确定性替身，不调用网络。
 - 单次运行最多 30 步，单次测试命令默认超时 60 秒。
 

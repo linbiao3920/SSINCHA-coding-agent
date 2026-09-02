@@ -1,0 +1,13 @@
+services:
+  web:
+    build: .
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      # Set SSINCHA_WORKSPACE to one dedicated host project directory.
+      - ${SSINCHA_WORKSPACE:-./examples/demo_project}:/workspace
+      - agent_sessions:/data/sessions
+    restart: "no"
+
+volumes:
+  agent_sessions:
