@@ -49,7 +49,7 @@ DeepSeek API -> 严格 JSON 解析 -> Action
 ## 功能概览
 
 - **真实 LLM 客户端**：通过 DeepSeek 官方 API 获取下一步 JSON 动作，严格校验响应边界。
-- **文件读写**：提供 `Read_File` 和 `Write_File`，路径只能位于指定 workspace 内。
+- **文件读写**：提供 `Read_File` 和 `Write_File`，路径只能位于指定 workspace 内；读写单文件内容均限制为 1 MiB（按 UTF-8 字节数计算），超限在访问或落盘前拒绝。
 - **受限测试执行**：仅允许 `pytest` 或 `npm test`；命令及其路径参数均不能越过 workspace，npm 的 `scripts.test` 还须通过本地测试运行器白名单。执行 npm 测试时读取并校验脚本后直接启动获准 runner，跳过 `pretest`/`posttest` 生命周期钩子；同时拒绝 shell 注入字符、危险解释器和越界路径，并有超时。
 - **结构化反馈闭环**：从 pytest 输出提取错误类型、分类、文件位置、行号和摘要，将有限反馈回灌给下一轮模型。
 - **测试目标绑定**：Python 写入要求聚焦 pytest；JS/TS、`package.json` 和 npm 锁文件要求 `npm test`，避免无关测试冒充验证或虚构 Python 测试路径。
@@ -315,7 +315,7 @@ python -m pytest -q
 python -m pytest tests\test_loop.py tests\test_tools.py tests\test_guardrail.py tests\test_completion.py tests\test_session.py -q
 ```
 
-当前完整测试套件为 **87 passed**。它覆盖 JSON 响应边界、本地工具与命令限制、测试路径围栏、Python/JS/TS 测试绑定、npm 脚本安全校验与生命周期钩子隔离、循环终止、验证门控、session 安全、密钥脱敏、Web UI 会话操作，以及 Dockerfile、构建上下文和 Compose 的关键安全约束。
+当前完整测试套件为 **89 passed**。它覆盖 JSON 响应边界、本地工具与命令限制、文件内容大小限制、测试路径围栏、Python/JS/TS 测试绑定、npm 脚本安全校验与生命周期钩子隔离、循环终止、验证门控、session 安全、密钥脱敏、Web UI 会话操作，以及 Dockerfile、构建上下文和 Compose 的关键安全约束。
 
 ---
 

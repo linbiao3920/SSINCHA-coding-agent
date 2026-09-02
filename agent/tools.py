@@ -44,6 +44,7 @@ class PathBoundaryError(ToolError):
 
 _INJECTION_RE = re.compile(r"[;&|`\n\r]")
 _ALLOWED_TEST_BASES = frozenset({"pytest", "npm"})
+MAX_FILE_CONTENT_BYTES = 1024 * 1024
 _NPM_SCRIPT_INJECTION_RE = re.compile(r"[;&|`\n\r<>]|\$\(|\$\{|\\")
 _NPM_DANGEROUS_TOKENS = frozenset(
     {
@@ -124,6 +125,11 @@ class Toolbox:
                 return ToolOutput(f"file not found: {relative_path}", False)
             if not target.is_file():
                 return ToolOutput(f"not a file: {relative_path}", False)
+            if target.stat().st_size > MAX_FILE_CONTENT_BYTES:
+                return ToolOutput(
+                    f"read rejected: file exceeds {MAX_FILE_CONTENT_BYTES} byte limit",
+                    False,
+                )
             content = target.read_text(encoding="utf-8")
             return ToolOutput(content, True, stdout=content)
         except (OSError, UnicodeError, ToolError) as exc:
@@ -132,6 +138,15 @@ class Toolbox:
     def write_file(self, relative_path: str, content: str) -> ToolOutput:
         if type(content) is not str:
             return ToolOutput("content must be a string", False)
+        try:
+            content_bytes = content.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            return ToolOutput(f"write rejected: content is not valid UTF-8 ({exc})", False)
+        if len(content_bytes) > MAX_FILE_CONTENT_BYTES:
+            return ToolOutput(
+                f"write rejected: content exceeds {MAX_FILE_CONTENT_BYTES} byte limit",
+                False,
+            )
         try:
             target = self.resolve_path(relative_path)
             target.parent.mkdir(parents=True, exist_ok=True)

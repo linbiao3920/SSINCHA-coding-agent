@@ -2,7 +2,7 @@ import agent.tools as tools_module
 from pathlib import Path
 
 from agent.action import Action
-from agent.tools import Toolbox
+from agent.tools import MAX_FILE_CONTENT_BYTES, Toolbox
 
 
 def test_file_tools_read_and_write_inside_workspace(tmp_path: Path):
@@ -33,6 +33,33 @@ def test_file_tools_block_escape_and_symlink_escape(tmp_path: Path):
     linked = toolbox.execute(Action("Read_File", {"path": "link.txt"}))
     assert linked["success"] is False
     assert "escapes workspace" in linked["observation"]
+
+
+def test_file_write_rejects_content_over_byte_limit_without_creating_file(tmp_path: Path):
+    toolbox = Toolbox(tmp_path)
+    content = "x" * (MAX_FILE_CONTENT_BYTES + 1)
+
+    rejected = toolbox.execute(
+        Action("Write_File", {"path": "nested/large.txt", "content": content})
+    )
+
+    assert rejected["success"] is False
+    assert "exceeds" in rejected["observation"]
+    assert not (tmp_path / "nested" / "large.txt").exists()
+
+
+def test_file_size_limit_counts_utf8_bytes_and_applies_to_reads(tmp_path: Path):
+    toolbox = Toolbox(tmp_path)
+    content = "中" * (MAX_FILE_CONTENT_BYTES // len("中".encode("utf-8")))
+    accepted = toolbox.execute(Action("Write_File", {"path": "large.txt", "content": content}))
+    assert accepted["success"] is True
+
+    oversized = tmp_path / "oversized.txt"
+    oversized.write_bytes(b"x" * (MAX_FILE_CONTENT_BYTES + 1))
+    rejected = toolbox.execute(Action("Read_File", {"path": "oversized.txt"}))
+
+    assert rejected["success"] is False
+    assert "exceeds" in rejected["observation"]
 
 
 def test_test_command_is_restricted_and_runs_in_workspace(tmp_path: Path):
