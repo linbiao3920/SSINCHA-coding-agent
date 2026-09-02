@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import os
 import re
 import shlex
 from pathlib import Path
@@ -42,6 +44,42 @@ class PathBoundaryError(ToolError):
 
 _INJECTION_RE = re.compile(r"[;&|`\n\r]")
 _ALLOWED_TEST_BASES = frozenset({"pytest", "npm"})
+_NPM_SCRIPT_INJECTION_RE = re.compile(r"[;&|`\n\r<>]|\$\(|\$\{|\\")
+_NPM_DANGEROUS_TOKENS = frozenset(
+    {
+        "cmd",
+        "cmd.exe",
+        "powershell",
+        "powershell.exe",
+        "pwsh",
+        "sh",
+        "bash",
+        "zsh",
+        "fish",
+        "python",
+        "python3",
+        "node -e",
+        "node.exe -e",
+        "curl",
+        "wget",
+        "npm install",
+        "npm ci",
+        "npm run",
+        "npx",
+    }
+)
+_NPM_TEST_RUNNERS = frozenset({
+    "jest",
+    "vitest",
+    "mocha",
+    "ava",
+    "tap",
+    "karma",
+    "node",
+    "node.exe",
+    "deno",
+    "bun",
+})
 
 
 class Toolbox:
@@ -108,6 +146,20 @@ class Toolbox:
         except ToolError as exc:
             return ToolOutput(f"command rejected: {exc}", False, exit_code=-1, stderr=str(exc))
 
+        environment = None
+        if parts[0] == "npm":
+            # npm test also runs pretest/posttest hooks. Run the validated
+            # runner directly so lifecycle hooks cannot execute here.
+            try:
+                parts = self._validate_npm_test_script()
+            except ToolError as exc:
+                return ToolOutput(f"command rejected: {exc}", False, exit_code=-1, stderr=str(exc))
+            environment = os.environ.copy()
+            local_bin = self.workspace / "node_modules" / ".bin"
+            environment["PATH"] = os.pathsep.join(
+                [str(local_bin), environment.get("PATH", "")]
+            )
+
         try:
             result = subprocess.run(
                 parts,
@@ -116,6 +168,7 @@ class Toolbox:
                 text=True,
                 timeout=self.timeout_seconds,
                 check=False,
+                env=environment,
             )
         except subprocess.TimeoutExpired:
             return ToolOutput("test command timed out", False, exit_code=-1, stderr="timeout")
@@ -141,12 +194,54 @@ class Toolbox:
             raise ToolError("only pytest and npm test are allowed")
         if parts[0] == "npm" and (len(parts) < 2 or parts[1] != "test"):
             raise ToolError("npm command must start with npm test")
+        if parts[0] == "npm":
+            if len(parts) != 2:
+                raise ToolError("npm test does not accept extra command arguments")
+            self._validate_npm_test_script()
         for target in self._test_path_arguments(parts):
             try:
                 self.resolve_path(target)
             except PathBoundaryError as exc:
                 raise ToolError(f"test path rejected: {exc}") from exc
         return parts
+
+    def _validate_npm_test_script(self) -> list[str]:
+        """Reject npm test scripts that are command launchers, not test runners."""
+        package_path = self.resolve_path("package.json")
+        if not package_path.is_file():
+            raise ToolError("npm test requires package.json in workspace")
+        try:
+            package = json.loads(package_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ToolError("package.json is invalid") from exc
+        scripts = package.get("scripts") if type(package) is dict else None
+        script = scripts.get("test") if type(scripts) is dict else None
+        if type(script) is not str or not script.strip():
+            raise ToolError("package.json must define scripts.test")
+        if _NPM_SCRIPT_INJECTION_RE.search(script):
+            raise ToolError("npm scripts.test contains forbidden shell syntax")
+        lowered = script.lower()
+        if any(token in lowered for token in _NPM_DANGEROUS_TOKENS):
+            raise ToolError("npm scripts.test uses a disallowed command")
+        try:
+            script_parts = shlex.split(script)
+        except ValueError as exc:
+            raise ToolError("npm scripts.test quoting is invalid") from exc
+        if not script_parts or script_parts[0].lower() not in _NPM_TEST_RUNNERS:
+            raise ToolError("npm scripts.test must invoke an approved test runner")
+        if script_parts[0].lower() in {"node", "node.exe"}:
+            if "--test" not in script_parts:
+                raise ToolError("node npm test script must use node --test")
+        elif script_parts[0].lower() == "deno" and "test" not in script_parts[1:]:
+            raise ToolError("deno npm test script must use deno test")
+        elif script_parts[0].lower() == "bun" and "test" not in script_parts[1:]:
+            raise ToolError("bun npm test script must use bun test")
+        for target in self._test_path_arguments(script_parts):
+            try:
+                self.resolve_path(target)
+            except PathBoundaryError as exc:
+                raise ToolError(f"npm test path rejected: {exc}") from exc
+        return script_parts
 
     @staticmethod
     def _test_path_arguments(parts: list[str]) -> list[str]:

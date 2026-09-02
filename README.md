@@ -50,7 +50,7 @@ DeepSeek API -> 严格 JSON 解析 -> Action
 
 - **真实 LLM 客户端**：通过 DeepSeek 官方 API 获取下一步 JSON 动作，严格校验响应边界。
 - **文件读写**：提供 `Read_File` 和 `Write_File`，路径只能位于指定 workspace 内。
-- **受限测试执行**：仅允许 `pytest` 或 `npm test`；命令及其路径参数均不能越过 workspace，拒绝 shell 注入字符并有超时。
+- **受限测试执行**：仅允许 `pytest` 或 `npm test`；命令及其路径参数均不能越过 workspace，npm 的 `scripts.test` 还须通过本地测试运行器白名单。执行 npm 测试时读取并校验脚本后直接启动获准 runner，跳过 `pretest`/`posttest` 生命周期钩子；同时拒绝 shell 注入字符、危险解释器和越界路径，并有超时。
 - **结构化反馈闭环**：从 pytest 输出提取错误类型、分类、文件位置、行号和摘要，将有限反馈回灌给下一轮模型。
 - **测试目标绑定**：Python 写入要求聚焦 pytest；JS/TS、`package.json` 和 npm 锁文件要求 `npm test`，避免无关测试冒充验证或虚构 Python 测试路径。
 - **路径围栏**：阻止 `../`、绝对路径和符号链接造成的 workspace 越界访问。
@@ -116,7 +116,7 @@ python -m agent --workspace examples\demo_project "Fix the failing calculator te
 Read_File -> Write_File -> Execute_Test -> Stop
 ```
 
-命令仅在最终 `Stop` 成功时返回退出码 `0`；LLM 错误、熔断或达到步数上限而未完成时返回 `1`，启动配置错误返回 `2`，可直接用于脚本或 CI 判断任务状态。
+命令仅在最终 `Stop` 成功时返回退出码 `0`；LLM 错误、熔断或达到步数上限而未完成时返回 `1`，启动配置错误返回 `2`，可直接用于脚本或 CI 判断任务状态。`npm test` 不是强沙箱：项目测试脚本本身仍可执行测试代码；本项目只做脚本白名单和命令边界控制，强隔离请使用 Docker。
 
 如果模型在写入后直接请求停止，系统会返回：
 
@@ -315,7 +315,7 @@ python -m pytest -q
 python -m pytest tests\test_loop.py tests\test_tools.py tests\test_guardrail.py tests\test_completion.py tests\test_session.py -q
 ```
 
-当前完整测试套件为 **82 passed**。它覆盖 JSON 响应边界、本地工具与命令限制、测试路径围栏、Python/JS/TS 测试绑定、循环终止、验证门控、session 安全、密钥脱敏、Web UI 会话操作，以及 Dockerfile、构建上下文和 Compose 的关键安全约束。
+当前完整测试套件为 **87 passed**。它覆盖 JSON 响应边界、本地工具与命令限制、测试路径围栏、Python/JS/TS 测试绑定、npm 脚本安全校验与生命周期钩子隔离、循环终止、验证门控、session 安全、密钥脱敏、Web UI 会话操作，以及 Dockerfile、构建上下文和 Compose 的关键安全约束。
 
 ---
 
@@ -325,6 +325,7 @@ python -m pytest tests\test_loop.py tests\test_tools.py tests\test_guardrail.py 
 - 测试目标绑定要求测试命令显式指定与修改文件对应的测试路径；若项目没有对应测试，需先创建测试。
 - 只有一个模型动作循环，没有 CI 自动化；Web UI 和 Docker 方案均为本地单用户演示，不是多用户服务。
 - Docker 仅隔离运行环境；容器写入显式挂载的 `/workspace` 时，仍会修改对应宿主机目录。应只挂载专用测试项目。
+- `npm test` 的脚本白名单降低了任意命令风险，但不能替代操作系统沙箱；不要在不可信项目上直接运行，必要时使用 Docker 并限制挂载目录。
 - 需要有效的 DeepSeek API Key 才能运行真实 Agent；单元测试使用本地确定性替身，不调用网络。
 - 单次运行最多 30 步，单次测试命令默认超时 60 秒。
 
