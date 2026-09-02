@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
-import shlex
 from pathlib import Path
 
 from .action import Action
-from .tools import Toolbox, PathBoundaryError
-
-
-_INJECTION_RE = re.compile(r"[;&|`\n\r]")
+from .tools import Toolbox, PathBoundaryError, ToolError
 
 
 @dataclass(frozen=True)
@@ -41,17 +36,9 @@ class Guardrail:
             return GuardrailResult(True)
         if action.type == "Execute_Test":
             command = action.params.get("cmd")
-            if type(command) is not str or not command.strip():
-                return GuardrailResult(False, "command must be a non-empty string")
-            if _INJECTION_RE.search(command):
-                return GuardrailResult(False, "command contains forbidden shell characters")
             try:
-                parts = shlex.split(command)
-            except ValueError:
-                return GuardrailResult(False, "command quoting is invalid")
-            if not parts or parts[0] not in {"pytest", "npm"}:
-                return GuardrailResult(False, "only pytest and npm test are allowed")
-            if parts[0] == "npm" and (len(parts) < 2 or parts[1] != "test"):
-                return GuardrailResult(False, "npm command must start with npm test")
+                self._toolbox.validate_test_command(command)
+            except ToolError as exc:
+                return GuardrailResult(False, str(exc))
             return GuardrailResult(True)
         return GuardrailResult(True)

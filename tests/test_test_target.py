@@ -35,6 +35,16 @@ def test_binder_blocks_unrelated_test_target(tmp_path: Path):
     assert "greet.py" in decision.reason
 
 
+def test_binder_returns_a_rejection_for_workspace_escape(tmp_path: Path):
+    binder = TestTargetBinder(tmp_path)
+    binder.observe_write("main.py")
+
+    decision = binder.inspect("pytest ../outside.py")
+
+    assert decision.allowed is False
+    assert decision.reason == "test target escapes workspace"
+
+
 def test_binder_requires_explicit_target_for_broad_pytest(tmp_path: Path):
     (tmp_path / "greet.py").write_text("print('hello')\n", encoding="utf-8")
     (tmp_path / "test_greet.py").write_text(

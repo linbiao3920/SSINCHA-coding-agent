@@ -43,3 +43,13 @@ def test_test_command_is_restricted_and_runs_in_workspace(tmp_path: Path):
         rejected = toolbox.execute(Action("Execute_Test", {"cmd": command}))
         assert rejected["success"] is False
         assert rejected["exit_code"] == -1
+
+
+def test_test_command_rejects_workspace_escape_without_starting_pytest(tmp_path: Path):
+    toolbox = Toolbox(tmp_path)
+
+    rejected = toolbox.execute(Action("Execute_Test", {"cmd": "pytest ../outside.py"}))
+
+    assert rejected["success"] is False
+    assert rejected["exit_code"] == -1
+    assert "test path rejected: path escapes workspace" in rejected["observation"]

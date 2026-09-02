@@ -87,9 +87,6 @@ class TestTargetBinder:
     def inspect(self, command: str) -> TargetDecision:
         if type(command) is not str or not command.strip():
             raise ValueError("test command must be a non-empty string")
-        if not self._modified:
-            return TargetDecision(True)
-
         try:
             parts = shlex.split(command)
         except ValueError:
@@ -100,7 +97,13 @@ class TestTargetBinder:
                 continue
             # Pytest node IDs append ::test_name to a file path.
             path_part = part.split("::", 1)[0]
-            targets.add(self._relative(path_part))
+            try:
+                targets.add(self._relative(path_part))
+            except ValueError:
+                return TargetDecision(False, "test target escapes workspace")
+
+        if not self._modified:
+            return TargetDecision(True)
 
         missing: list[str] = []
         for modified in sorted(self._modified):

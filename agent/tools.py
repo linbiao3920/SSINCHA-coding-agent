@@ -104,7 +104,7 @@ class Toolbox:
 
     def execute_test(self, command: str) -> ToolOutput:
         try:
-            parts = self._validate_test_command(command)
+            parts = self.validate_test_command(command)
         except ToolError as exc:
             return ToolOutput(f"command rejected: {exc}", False, exit_code=-1, stderr=str(exc))
 
@@ -127,8 +127,8 @@ class Toolbox:
         observation = f"exit_code={result.returncode}\nstdout:\n{stdout}\nstderr:\n{stderr}"
         return ToolOutput(observation, result.returncode == 0, result.returncode, stdout, stderr)
 
-    @staticmethod
-    def _validate_test_command(command: str) -> list[str]:
+    def validate_test_command(self, command: str) -> list[str]:
+        """Validate a test command and keep all path arguments in workspace."""
         if type(command) is not str or not command.strip():
             raise ToolError("command must be a non-empty string")
         if _INJECTION_RE.search(command):
@@ -141,4 +141,39 @@ class Toolbox:
             raise ToolError("only pytest and npm test are allowed")
         if parts[0] == "npm" and (len(parts) < 2 or parts[1] != "test"):
             raise ToolError("npm command must start with npm test")
+        for target in self._test_path_arguments(parts):
+            try:
+                self.resolve_path(target)
+            except PathBoundaryError as exc:
+                raise ToolError(f"test path rejected: {exc}") from exc
         return parts
+
+    @staticmethod
+    def _test_path_arguments(parts: list[str]) -> list[str]:
+        """Return path-like positional values and long-option values.
+
+        Pytest accepts paths both directly and through options such as
+        ``--rootdir=...``.  Every path-like value is checked before spawning a
+        process so changing the process cwd cannot be used to escape workspace.
+        """
+        targets: list[str] = []
+        for part in parts[1:]:
+            value = part.split("=", 1)[1] if part.startswith("--") and "=" in part else part
+            value = value.split("::", 1)[0]
+            if Toolbox._looks_like_test_path(value):
+                targets.append(value)
+        return targets
+
+    @staticmethod
+    def _looks_like_test_path(value: str) -> bool:
+        return (
+            bool(value)
+            and (
+                Path(value).is_absolute()
+                or "/" in value
+                or "\\" in value
+                or value in {".", ".."}
+                or value.startswith(".")
+                or value.lower().endswith((".py", ".js", ".ts", ".tsx"))
+            )
+        )
